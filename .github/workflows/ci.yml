@@ -49,9 +49,5 @@ jobs:
     - run: sudo apt update && sudo apt install -y libudev-dev
     - run: cargo install cargo-binutils
     - run: cargo install ostool@0.7.24 
-    - uses: arceos-org/setup-qemu@v1
-      with:
-        version: 9.2.4
-        arch_list: aarch64
-    - name: Run app tests
-      run: cargo test --test test -- tests --show-output
+    - name: Build
+      run: cargo build

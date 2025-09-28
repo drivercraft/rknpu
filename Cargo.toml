@@ -1,12 +1,14 @@
 [package]
 edition = "2024"
-name = "project-name"
+name = "rknpu"
 version = "0.1.0"
 
 [dependencies]
-mbarrier = "0.1"
-dma-api = { version = "0.5", features = ["alloc"] }
+dma-api = {version = "0.5", features = ["alloc"]}
 log = "0.4"
+mbarrier = "0.1"
+tock-registers = "0.10"
+thiserror = {version = "1.0", default-features = false}
 
 [dev-dependencies]
 bare-test = "0.7"
