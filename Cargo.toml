@@ -8,7 +8,8 @@ dma-api = {version = "0.5", features = ["alloc"]}
 log = "0.4"
 mbarrier = "0.1"
 tock-registers = "0.10"
-thiserror = {version = "1.0", default-features = false}
+thiserror = {version = "2.0", default-features = false}
+aarch64-cpu-ext = "0.1"
 
 [dev-dependencies]
 bare-test = "0.7"
