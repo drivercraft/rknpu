@@ -1,5 +1,8 @@
 use ::core::ptr::NonNull;
-use tock_registers::{register_structs, registers::{ReadOnly, ReadWrite}};
+use tock_registers::{
+    register_structs,
+    registers::{ReadOnly, ReadWrite},
+};
 
 register_structs! {
     #[allow(non_snake_case)]

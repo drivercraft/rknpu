@@ -9,8 +9,8 @@
 use ::core::ptr::NonNull;
 use tock_registers::interfaces::Readable;
 
-pub mod consts;
 pub mod cna;
+pub mod consts;
 pub mod core;
 pub mod ddma;
 pub mod dpu;
@@ -96,6 +96,8 @@ impl RknpuRegisters {
     pub fn version(&self) -> u32 {
         let pc = self.pc();
         let regs = pc.regs();
-        regs.version.get().wrapping_add(regs.version_num.get() & 0xffff)
+        regs.version
+            .get()
+            .wrapping_add(regs.version_num.get() & 0xffff)
     }
 }

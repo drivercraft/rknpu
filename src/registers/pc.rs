@@ -89,11 +89,7 @@ tock_registers::register_bitfields! {u32,
 impl PcRegisters {
     /// Compose a task control value following the sequence described in the
     /// technical reference manual.
-    pub fn build_pc_task_control(
-        task_number_bits: u8,
-        task_pp_en: bool,
-        task_number: u32,
-    ) -> u32 {
+    pub fn build_pc_task_control(task_number_bits: u8, task_pp_en: bool, task_number: u32) -> u32 {
         let ctrl = (0x6 | (task_pp_en as u32)) << task_number_bits;
         let mask = if task_number_bits >= 32 {
             u32::MAX
@@ -109,6 +105,8 @@ impl PcRegisters {
 
     pub fn version(&self) -> u32 {
         let regs = self.regs();
-        regs.version.get().wrapping_add(regs.version_num.get() & 0xffff)
+        regs.version
+            .get()
+            .wrapping_add(regs.version_num.get() & 0xffff)
     }
 }
