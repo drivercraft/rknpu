@@ -9,23 +9,39 @@ extern crate bare_test;
 
 #[bare_test::tests]
 mod tests {
-    use core::time::Duration;
+    use core::ptr::NonNull;
 
-    use aarch64_cpu_ext::asm::{
-        barrier::{SY, dsb, isb},
-        tlb::{VMALLE1, VMALLE1IS, tlbi},
-    };
     use alloc::vec::Vec;
     use bare_test::{
-        fdt_parser::Node,
         globals::{PlatformInfoKind, global_val},
         mem::{iomap, page_size},
-        time::sleep,
     };
     use rknpu::{Rknpu, RknpuConfig, RknpuType};
+    use rockchip_pm::{PD, RkBoard, RockchipPM};
+
+    /// NPU 主电源域
+    pub const NPU: PD = PD(8);
+    /// NPU TOP 电源域  
+    pub const NPUTOP: PD = PD(9);
+    /// NPU1 电源域
+    pub const NPU1: PD = PD(10);
+    /// NPU2 电源域
+    pub const NPU2: PD = PD(11);
 
     #[test]
     fn it_works() {
+        let reg = get_syscon_addr();
+        let board = RkBoard::Rk3588;
+
+        let mut pm = RockchipPM::new(reg, board);
+
+        pm.power_domain_on(NPUTOP).unwrap();
+        pm.power_domain_on(NPU).unwrap();
+        pm.power_domain_on(NPU1).unwrap();
+        pm.power_domain_on(NPU2).unwrap();
+
+        info!("Powered on NPU domains");
+
         let mut npu = find_rknpu();
         npu.open().unwrap();
         info!("Opened RKNPU");
@@ -60,23 +76,38 @@ mod tests {
         let mut base_regs = Vec::new();
 
         for reg in regs {
-            base_regs.push(iomap(
-                (reg.address as usize).into(),
-                reg.size.unwrap_or(page_size()),
-            ));
-        }
+            let start_raw = reg.address as usize;
+            let end = start_raw + reg.size.unwrap_or(page_size());
 
-        let t1 = 0xfd7c08ec_usize;
-        let v = 0xfd7c0000_usize;
-        let of = t1 - v;
-        let p = iomap(v.into(), 0x1000);
-        unsafe {
-            let p = p.add(of);
-            debug!("test addr {:#p}", p);
-            let v = p.read_volatile();
-            debug!("test read {:#x}", v);
+            let start = start_raw & !(page_size() - 1);
+            let offset = start_raw - start;
+            let end = (end + page_size() - 1) & !(page_size() - 1);
+            let size = end - start;
+
+            base_regs.push(unsafe { iomap(start.into(), size).add(offset) });
         }
 
         Rknpu::new(&base_regs, config)
+    }
+
+    fn get_syscon_addr() -> NonNull<u8> {
+        let PlatformInfoKind::DeviceTree(fdt) = &global_val().platform_info;
+        let fdt = fdt.get();
+
+        let node = fdt
+            .find_compatible(&["syscon"])
+            .find(|n| n.name().contains("power-manage"))
+            .expect("Failed to find syscon node");
+
+        info!("Found node: {}", node.name());
+
+        let regs = node.reg().unwrap().collect::<Vec<_>>();
+        let start = regs[0].address as usize;
+        let end = start + regs[0].size.unwrap_or(0);
+        info!("Syscon address range: 0x{:x} - 0x{:x}", start, end);
+        let start = start & !(page_size() - 1);
+        let end = (end + page_size() - 1) & !(page_size() - 1);
+        info!("Aligned Syscon address range: 0x{:x} - 0x{:x}", start, end);
+        iomap(start.into(), end - start)
     }
 }

@@ -1,8 +1,6 @@
 use core::ptr::NonNull;
 use tock_registers::register_structs;
-use tock_registers::registers::{ReadOnly, ReadWrite};
-// `register_bitfields!` macro is provided by the tock-registers crate at the
-// crate root and can be invoked directly as `tock_registers::register_bitfields!`.
+use tock_registers::registers::*;
 
 register_structs! {
     pub PcRegs {

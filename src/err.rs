@@ -1,5 +1,7 @@
 //! Error types for RKNPU operations
 
+use core::fmt::Display;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RknpuError {
     /// Invalid parameter or argument
@@ -37,3 +39,11 @@ pub enum RknpuError {
     /// Internal error
     InternalError,
 }
+
+impl Display for RknpuError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl core::error::Error for RknpuError {}

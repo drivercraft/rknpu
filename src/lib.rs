@@ -28,9 +28,6 @@ pub use err::*;
 pub use osal::*;
 
 use crate::{data::RknpuData, registers::RknpuRegisters};
-// pub use hal::*;
-// pub use memory::*;
-// pub use device::*;
 
 pub struct Rknpu {
     base: Vec<RknpuRegisters>,

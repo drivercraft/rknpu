@@ -13,6 +13,8 @@ aarch64-cpu-ext = "0.1"
 
 [dev-dependencies]
 bare-test = "0.7"
+rockchip-pm = {git = "https://github.com/drivercraft/rockchip-pm"}
+
 
 [build-dependencies]
 bare-test-macros = "0.2"

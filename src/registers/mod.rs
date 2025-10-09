@@ -49,7 +49,7 @@ impl RknpuRegisters {
     }
 
     pub fn version(&self) -> u32 {
-        self.version.get() + self.version_num.get() & 0xffff
+        self.version.get() + (self.version_num.get() & 0xffff)
     }
 }
 
