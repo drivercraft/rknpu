@@ -18,15 +18,17 @@ use core::ptr::NonNull;
 mod config;
 mod data;
 mod err;
+mod gem;
+mod job;
 mod osal;
 mod registers;
-mod job;
 
 use alloc::vec::Vec;
 pub use config::*;
 pub use err::*;
-pub use osal::*;
+pub use gem::*;
 pub use job::*;
+pub use osal::*;
 use tock_registers::interfaces::*;
 
 use crate::{data::RknpuData, registers::RknpuRegisters};
@@ -77,6 +79,7 @@ pub struct Rknpu {
     config: RknpuConfig,
     data: RknpuData,
     iommu_enabled: bool,
+    gem: RknpuGemManager,
 }
 
 impl Rknpu {
@@ -98,6 +101,7 @@ impl Rknpu {
             data,
             config,
             iommu_enabled: false,
+            gem: RknpuGemManager::new(),
         }
     }
 
@@ -289,6 +293,14 @@ impl Rknpu {
         self.iommu_enabled = enabled;
     }
 
+    pub fn gem_manager(&self) -> &RknpuGemManager {
+        &self.gem
+    }
+
+    pub fn gem_manager_mut(&mut self) -> &mut RknpuGemManager {
+        &mut self.gem
+    }
+
     /// Submit an inference workload to the hardware queue.
     ///
     /// The Rust port keeps the validation and bookkeeping behaviour from the
@@ -329,6 +341,26 @@ impl Rknpu {
             return Err(RknpuError::InvalidParameter);
         }
 
+        let task_handle =
+            RknpuGemHandle::from_raw(submit.task_obj_addr).ok_or(RknpuError::InvalidHandle)?;
+
+        let tasks = self
+            .gem
+            .task_slice(task_handle)
+            .ok_or(RknpuError::InvalidHandle)?;
+
+        let start = submit.task_start as usize;
+        let end = start
+            .checked_add(submit.task_number as usize)
+            .ok_or(RknpuError::InvalidParameter)?;
+
+        if end > tasks.len() {
+            return Err(RknpuError::InvalidParameter);
+        }
+
+        let selected_tasks = &tasks[start..end];
+        let last_task = selected_tasks.last().ok_or(RknpuError::InvalidParameter)?;
+
         // For now we execute the job immediately instead of queueing it on a
         // per-core work list.  Future OS bindings can hook into the placeholder
         // and provide real scheduling.
@@ -337,6 +369,7 @@ impl Rknpu {
         submit.core_mask = selected_mask;
         submit.task_counter = submit.task_number;
         submit.hw_elapse_time = 0;
+        submit.task_base_addr = last_task.regcmd_addr;
 
         Ok(())
     }
@@ -406,16 +439,40 @@ mod tests {
     #[test]
     fn happy_path_sets_defaults() {
         let mut rknpu = test_rknpu();
+        let tasks = (0..4)
+            .map(|idx| RknpuTask {
+                regcmd_addr: 0x1000 + idx as u64 * 0x40,
+                ..RknpuTask::default()
+            })
+            .collect();
+        let handle = rknpu
+            .gem_manager_mut()
+            .create_from_tasks(tasks, 0, 0, RKNPU_CORE0_MASK)
+            .expect("failed to create task buffer");
         let mut submit = RknpuSubmit {
             flags: RKNPU_JOB_PC,
             task_number: 4,
             ..Default::default()
         };
+        submit.task_obj_addr = handle.as_raw();
 
         rknpu.submit(&mut submit).unwrap();
 
         assert_eq!(submit.task_counter, 4);
         assert_eq!(submit.core_mask, RKNPU_CORE0_MASK);
         assert_eq!(submit.hw_elapse_time, 0);
+        assert_eq!(submit.task_base_addr, 0x1000 + 3 * 0x40);
+    }
+
+    #[test]
+    fn reject_missing_task_buffer() {
+        let mut rknpu = test_rknpu();
+        let mut submit = RknpuSubmit {
+            flags: RKNPU_JOB_PC,
+            task_number: 2,
+            ..Default::default()
+        };
+        let err = rknpu.submit(&mut submit).unwrap_err();
+        assert_eq!(err, RknpuError::InvalidHandle);
     }
 }

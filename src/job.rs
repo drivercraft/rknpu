@@ -36,6 +36,21 @@ pub const RKNPU_JOB_FENCE_IN: u32 = 1 << 3;
 /// Job flag indicating a fence should be signalled on completion.
 pub const RKNPU_JOB_FENCE_OUT: u32 = 1 << 4;
 
+/// Task descriptor consumed by the hardware command parser in PC mode.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(C)]
+pub struct RknpuTask {
+    pub flags: u32,
+    pub op_idx: u32,
+    pub enable_mask: u32,
+    pub int_mask: u32,
+    pub int_clear: u32,
+    pub int_status: u32,
+    pub regcfg_amount: u32,
+    pub regcfg_offset: u32,
+    pub regcmd_addr: u64,
+}
+
 /// High level view of a sub-core task request.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[repr(C)]
