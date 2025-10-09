@@ -1,4 +1,5 @@
-use core::ptr::NonNull;
+use crate::registers::consts::INT_CLEAR_ALL;
+use ::core::ptr::NonNull;
 use tock_registers::interfaces::{Readable, Writeable};
 use tock_registers::register_structs;
 use tock_registers::registers::{ReadOnly, ReadWrite, WriteOnly};
@@ -15,27 +16,21 @@ register_structs! {
 }
 
 pub struct IntRegisters {
-    base: NonNull<u8>,
+    base: NonNull<IntRegs>,
 }
 
 impl IntRegisters {
-    /// Create an IntRegisters view for the interrupt group. The provided base
-    /// should be the core base; this function will offset to the interrupt
-    /// register region.
-    pub const unsafe fn from_base(base: NonNull<u8>) -> Self {
-        // INT registers live at +0x20 from the core base.
-        let ptr = base.as_ptr();
-        let off = 0x20usize;
-        let new = unsafe { NonNull::new_unchecked(ptr.add(off)) };
-        Self { base: new }
+    /// Create an IntRegisters view for the interrupt group.
+    pub const unsafe fn from_base(base: NonNull<IntRegs>) -> Self {
+        Self { base }
     }
 
     fn as_ptr(&self) -> *const IntRegs {
-        self.base.as_ptr() as *const IntRegs
+        self.base.as_ptr()
     }
 
     fn as_mut_ptr(&self) -> *mut IntRegs {
-        self.base.as_ptr() as *mut IntRegs
+        self.base.as_ptr()
     }
 
     /// Safety: see docs on `from_base` - caller must ensure mapping validity.
@@ -44,7 +39,7 @@ impl IntRegisters {
     }
 
     /// Safety: caller must ensure exclusive mutable access.
-    pub unsafe fn regs_mut(&self) -> &'static mut IntRegs {
+    pub unsafe fn regs_mut(&mut self) -> &'static mut IntRegs {
         unsafe { &mut *self.as_mut_ptr() }
     }
 }
@@ -58,20 +53,17 @@ tock_registers::register_bitfields! {u32,
     ]
 }
 
-/// Value used by the Linux driver to clear all interrupt sources.
-pub const INT_CLEAR_ALL: u32 = 0x1_FFFF;
-
 impl IntRegisters {
     /// Clear all interrupts by writing the driver's `RKNPU_INT_CLEAR` value.
     ///
     /// Safety: caller must ensure MMIO mapping validity.
-    pub unsafe fn clear_all(&self) {
+    pub unsafe fn clear_all(&mut self) {
         let regs = unsafe { self.regs_mut() };
         regs.int_clear.set(INT_CLEAR_ALL);
     }
 
     /// Write an interrupt mask value.
-    pub unsafe fn set_mask(&self, mask: u32) {
+    pub unsafe fn set_mask(&mut self, mask: u32) {
         let regs = unsafe { self.regs_mut() };
         regs.int_mask.set(mask);
     }
