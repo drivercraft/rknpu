@@ -14,5 +14,3 @@ pub enum RknpuType {
 pub struct RknpuConfig {
     pub rknpu_type: RknpuType,
 }
-
-

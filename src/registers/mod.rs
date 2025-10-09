@@ -40,7 +40,7 @@ impl RknpuRegisters {
     }
 
     #[inline(always)]
-    fn offset_ptr<T>(&self, offset: usize) -> NonNull<T> {
+    pub(crate) fn offset_ptr<T>(&self, offset: usize) -> NonNull<T> {
         // SAFETY: caller guarantees the MMIO mapping is valid; offsets come
         // from the hardware documentation.
         unsafe {

@@ -16,7 +16,7 @@ mod tests {
         globals::{PlatformInfoKind, global_val},
         mem::{iomap, page_size},
     };
-    use rknpu::{Rknpu, RknpuConfig, RknpuType};
+    use rknpu::{Rknpu, RknpuAction, RknpuAction, RknpuConfig, RknpuType};
     use rockchip_pm::{PD, RkBoard, RockchipPM};
 
     /// NPU 主电源域
@@ -47,6 +47,88 @@ mod tests {
         info!("Opened RKNPU");
 
         info!("Found RKNPU {:#x}", npu.get_hw_version());
+
+        // Test action functionality
+        test_rknpu_actions(&mut npu);
+    }
+
+    fn test_rknpu_actions(npu: &mut Rknpu) {
+        info!("Testing RKNPU action functionality");
+
+        // Test GetHwVersion action
+        let action = RknpuAction::new(RknpuAction::GetHwVersion, 0);
+        match npu.action(action) {
+            Ok(result) => {
+                info!("Hardware version via action: {:#x}", result.value);
+                assert_ne!(result.value, 0, "Hardware version should not be zero");
+            }
+            Err(e) => {
+                error!("Failed to get hardware version via action: {:?}", e);
+            }
+        }
+
+        // Test GetDrvVersion action
+        let action = RknpuAction::new(RknpuAction::GetDrvVersion, 0);
+        match npu.action(action) {
+            Ok(result) => {
+                info!("Driver version via action: {:#x}", result.value);
+                assert_eq!(result.value, 0x0100, "Driver version should be 1.0.0");
+            }
+            Err(e) => {
+                error!("Failed to get driver version via action: {:?}", e);
+            }
+        }
+
+        // Test GetFreq action
+        let action = RknpuAction::new(RknpuAction::GetFreq, 0);
+        match npu.action(action) {
+            Ok(result) => {
+                info!("Frequency via action: {} Hz", result.value);
+                assert_ne!(result.value, 0, "Frequency should not be zero");
+            }
+            Err(e) => {
+                error!("Failed to get frequency via action: {:?}", e);
+            }
+        }
+
+        // Test GetIommuEn action
+        let action = RknpuAction::new(RknpuAction::GetIommuEn, 0);
+        match npu.action(action) {
+            Ok(result) => {
+                let iommu_status = if result.value != 0 {
+                    "enabled"
+                } else {
+                    "disabled"
+                };
+                info!("IOMMU status via action: {}", iommu_status);
+            }
+            Err(e) => {
+                error!("Failed to get IOMMU status via action: {:?}", e);
+            }
+        }
+
+        // Test convenience method
+        match npu.get_hw_version_via_action() {
+            Ok(version) => {
+                info!("Hardware version via convenience method: {:#x}", version);
+                assert_ne!(version, 0, "Hardware version should not be zero");
+            }
+            Err(e) => {
+                error!(
+                    "Failed to get hardware version via convenience method: {:?}",
+                    e
+                );
+            }
+        }
+
+        // Test IOMMU enable/disable
+        npu.set_iommu_enabled(true);
+        assert!(npu.is_iommu_enabled(), "IOMMU should be enabled");
+
+        npu.set_iommu_enabled(false);
+        assert!(!npu.is_iommu_enabled(), "IOMMU should be disabled");
+
+        info!("Action functionality tests completed successfully");
     }
 
     fn find_rknpu() -> Rknpu {
