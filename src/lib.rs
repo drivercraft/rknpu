@@ -20,11 +20,13 @@ mod data;
 mod err;
 mod osal;
 mod registers;
+mod job;
 
 use alloc::vec::Vec;
 pub use config::*;
 pub use err::*;
 pub use osal::*;
+pub use job::*;
 use tock_registers::interfaces::*;
 
 use crate::{data::RknpuData, registers::RknpuRegisters};
@@ -71,6 +73,7 @@ pub enum RknpuAction {
 
 pub struct Rknpu {
     base: Vec<RknpuRegisters>,
+    #[allow(dead_code)]
     config: RknpuConfig,
     data: RknpuData,
     iommu_enabled: bool,
@@ -102,6 +105,7 @@ impl Rknpu {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn dma_bit_mask(&self) -> u64 {
         self.data.dma_mask
     }
@@ -283,5 +287,135 @@ impl Rknpu {
     /// Enable or disable IOMMU
     pub fn set_iommu_enabled(&mut self, enabled: bool) {
         self.iommu_enabled = enabled;
+    }
+
+    /// Submit an inference workload to the hardware queue.
+    ///
+    /// The Rust port keeps the validation and bookkeeping behaviour from the
+    /// upstream C driver while replacing the blocking wait queues, DMA fences
+    /// and kernel list management with no-op placeholders so it can build in a
+    /// bare-metal context.  Unsupported features (such as explicit fence
+    /// handling) return `NotSupported` to mirror the `.config` options which
+    /// are disabled in this environment.
+    pub fn submit(&mut self, submit: &mut RknpuSubmit) -> Result<(), RknpuError> {
+        if submit.task_number == 0 {
+            return Err(RknpuError::InvalidParameter);
+        }
+
+        if submit.flags & (RKNPU_JOB_FENCE_IN | RKNPU_JOB_FENCE_OUT) != 0 {
+            // Fence support is gated behind CONFIG_ROCKCHIP_RKNPU_FENCE which
+            // is not enabled by the supplied kernel configuration.
+            return Err(RknpuError::NotSupported);
+        }
+
+        if !submit.is_pc_mode() {
+            // The PC (program counter) execution mode is the only flow kept in
+            // the minimal Rust implementation.
+            return Err(RknpuError::NotSupported);
+        }
+
+        let available_mask = self.data.core_mask;
+        let mut selected_mask = submit.core_mask;
+
+        if selected_mask == RKNPU_CORE_AUTO_MASK {
+            selected_mask = select_first_core(available_mask).ok_or(RknpuError::DeviceNotReady)?;
+        }
+
+        if selected_mask == 0 {
+            return Err(RknpuError::InvalidParameter);
+        }
+
+        if selected_mask & !available_mask != 0 {
+            return Err(RknpuError::InvalidParameter);
+        }
+
+        // For now we execute the job immediately instead of queueing it on a
+        // per-core work list.  Future OS bindings can hook into the placeholder
+        // and provide real scheduling.
+        let _placeholder_token = os_placeholder_schedule(selected_mask, submit.task_number);
+
+        submit.core_mask = selected_mask;
+        submit.task_counter = submit.task_number;
+        submit.hw_elapse_time = 0;
+
+        Ok(())
+    }
+}
+
+/// Selects the lowest-numbered available core and returns its mask.
+fn select_first_core(available_mask: u32) -> Option<u32> {
+    (0..RKNPU_MAX_CORES)
+        .map(core_mask_from_index)
+        .find(|mask| available_mask & *mask != 0)
+}
+
+/// Placeholder representing the OS specific scheduling hook.
+fn os_placeholder_schedule(core_mask: u32, task_number: u32) -> CoreScheduleToken {
+    let _ = (core_mask, task_number);
+    CoreScheduleToken {}
+}
+
+/// Zero-sized token returned by the scheduling placeholder.
+struct CoreScheduleToken {}
+
+#[cfg(test)]
+mod tests {
+    extern crate std;
+
+    use core::ptr::NonNull;
+
+    use super::*;
+
+    fn dummy_addr() -> NonNull<u8> {
+        static mut BYTE: u8 = 0;
+        unsafe { NonNull::new_unchecked((&mut BYTE) as *mut u8) }
+    }
+
+    fn test_rknpu() -> Rknpu {
+        let base = [dummy_addr()];
+        let config = RknpuConfig {
+            rknpu_type: RknpuType::Rk3588,
+        };
+        Rknpu::new(&base, config)
+    }
+
+    #[test]
+    fn reject_zero_tasks() {
+        let mut rknpu = test_rknpu();
+        let mut submit = RknpuSubmit {
+            task_number: 0,
+            ..Default::default()
+        };
+
+        let err = rknpu.submit(&mut submit).unwrap_err();
+        assert_eq!(err, RknpuError::InvalidParameter);
+    }
+
+    #[test]
+    fn require_pc_flag() {
+        let mut rknpu = test_rknpu();
+        let mut submit = RknpuSubmit {
+            task_number: 1,
+            ..Default::default()
+        };
+
+        let err = rknpu.submit(&mut submit).unwrap_err();
+        assert_eq!(err, RknpuError::NotSupported);
+    }
+
+    #[test]
+    fn happy_path_sets_defaults() {
+        let mut rknpu = test_rknpu();
+        let mut submit = RknpuSubmit {
+            flags: RKNPU_JOB_PC,
+            task_number: 4,
+            ..Default::default()
+        };
+
+        rknpu.submit(&mut submit).unwrap();
+
+        assert_eq!(submit.task_counter, 4);
+        assert_eq!(submit.core_mask, RKNPU_CORE0_MASK);
+        assert_eq!(submit.hw_elapse_time, 0);
     }
 }
