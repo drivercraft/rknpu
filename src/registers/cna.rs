@@ -1,4 +1,3 @@
-use ::core::ptr::NonNull;
 use tock_registers::{
     register_structs,
     registers::{ReadOnly, ReadWrite},
@@ -67,25 +66,5 @@ register_structs! {
         (0x0180 => pub cvt_con5: ReadWrite<u32>),
         (0x0184 => pub pad_con1: ReadWrite<u32>),
         (0x0188 => @END),
-    }
-}
-
-pub struct CnaRegisters {
-    base: NonNull<CnaRegs>,
-}
-
-impl CnaRegisters {
-    pub const unsafe fn from_base(base: NonNull<CnaRegs>) -> Self {
-        Self { base }
-    }
-
-    #[inline]
-    pub fn regs(&self) -> &CnaRegs {
-        unsafe { self.base.as_ref() }
-    }
-
-    #[inline]
-    pub fn regs_mut(&mut self) -> &mut CnaRegs {
-        unsafe { self.base.as_mut() }
     }
 }

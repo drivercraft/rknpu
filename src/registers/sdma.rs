@@ -1,4 +1,3 @@
-use ::core::ptr::NonNull;
 use tock_registers::{register_structs, registers::ReadWrite};
 
 register_structs! {
@@ -17,25 +16,5 @@ register_structs! {
         (0x0028 => pub cfg_dma_wstrb: ReadWrite<u32>),
         (0x002C => pub cfg_status: ReadWrite<u32>),
         (0x0030 => @END),
-    }
-}
-
-pub struct SdmaRegisters {
-    base: NonNull<SdmaRegs>,
-}
-
-impl SdmaRegisters {
-    pub const unsafe fn from_base(base: NonNull<SdmaRegs>) -> Self {
-        Self { base }
-    }
-
-    #[inline]
-    pub fn regs(&self) -> &SdmaRegs {
-        unsafe { self.base.as_ref() }
-    }
-
-    #[inline]
-    pub fn regs_mut(&mut self) -> &mut SdmaRegs {
-        unsafe { self.base.as_mut() }
     }
 }

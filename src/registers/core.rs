@@ -18,23 +18,3 @@ register_structs! {
         (0x0020 => @END),
     }
 }
-
-pub struct CoreRegisters {
-    base: NonNull<CoreRegs>,
-}
-
-impl CoreRegisters {
-    pub const unsafe fn from_base(base: NonNull<CoreRegs>) -> Self {
-        Self { base }
-    }
-
-    #[inline]
-    pub fn regs(&self) -> &CoreRegs {
-        unsafe { self.base.as_ref() }
-    }
-
-    #[inline]
-    pub fn regs_mut(&mut self) -> &mut CoreRegs {
-        unsafe { self.base.as_mut() }
-    }
-}

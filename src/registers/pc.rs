@@ -1,4 +1,3 @@
-use ::core::ptr::NonNull;
 use tock_registers::{interfaces::*, register_structs, registers::*};
 
 register_structs! {
@@ -20,21 +19,6 @@ register_structs! {
         (0x0038 => _reserved2),
         (0x003C => pub task_status: ReadOnly<u32>),
         (0x0040 => @END),
-    }
-}
-
-pub struct PcRegisters {
-    base: NonNull<PcRegs>,
-}
-
-impl PcRegisters {
-    pub const unsafe fn from_base(base: NonNull<PcRegs>) -> Self {
-        Self { base }
-    }
-
-    #[inline]
-    pub fn regs(&self) -> &PcRegs {
-        unsafe { self.base.as_ref() }
     }
 }
 
@@ -81,7 +65,7 @@ tock_registers::register_bitfields! {u32,
     ]
 }
 
-impl PcRegisters {
+impl PcRegs {
     /// Compose a task control value following the sequence described in the
     /// technical reference manual.
     pub fn build_pc_task_control(task_number_bits: u8, task_pp_en: bool, task_number: u32) -> u32 {
@@ -99,9 +83,8 @@ impl PcRegisters {
     }
 
     pub fn version(&self) -> u32 {
-        let regs = self.regs();
-        regs.version
+        self.version
             .get()
-            .wrapping_add(regs.version_num.get() & 0xffff)
+            .wrapping_add(self.version_num.get() & 0xffff)
     }
 }

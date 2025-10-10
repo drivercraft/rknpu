@@ -10,6 +10,7 @@ mbarrier = "0.1"
 tock-registers = "0.10"
 thiserror = {version = "2.0", default-features = false}
 aarch64-cpu-ext = "0.1"
+spin = "0.10"
 
 [dev-dependencies]
 bare-test = "0.7"

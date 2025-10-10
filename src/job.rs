@@ -8,7 +8,12 @@
 
 #![allow(dead_code)]
 
-use core::fmt;
+use core::{
+    fmt,
+    sync::atomic::{AtomicU32, AtomicUsize},
+};
+
+use dma_api::DVec;
 
 /// Maximum number of hardware cores supported by the IP.
 pub const RKNPU_MAX_CORES: usize = 3;
@@ -38,7 +43,7 @@ pub const RKNPU_JOB_FENCE_OUT: u32 = 1 << 4;
 
 /// Task descriptor consumed by the hardware command parser in PC mode.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[repr(C)]
+#[repr(C, packed)]
 pub struct RknpuTask {
     pub flags: u32,
     pub op_idx: u32,
@@ -60,8 +65,6 @@ pub struct RknpuSubcoreTask {
 }
 
 /// Submission descriptor mirroring the userspace ABI.
-#[derive(Clone, Copy)]
-#[repr(C)]
 pub struct RknpuSubmit {
     pub flags: u32,
     pub timeout: u32,
@@ -69,7 +72,8 @@ pub struct RknpuSubmit {
     pub task_number: u32,
     pub task_counter: u32,
     pub priority: i32,
-    pub task_obj_addr: u64,
+    pub task_obj: DVec<u8>,
+    // pub task_obj_addr: u64,
     pub iommu_domain_id: u32,
     pub reserved: u32,
     pub task_base_addr: u64,
@@ -77,27 +81,6 @@ pub struct RknpuSubmit {
     pub core_mask: u32,
     pub fence_fd: i32,
     pub subcore_task: [RknpuSubcoreTask; RKNPU_MAX_SUBCORE_TASKS],
-}
-
-impl Default for RknpuSubmit {
-    fn default() -> Self {
-        Self {
-            flags: 0,
-            timeout: 0,
-            task_start: 0,
-            task_number: 0,
-            task_counter: 0,
-            priority: 0,
-            task_obj_addr: 0,
-            iommu_domain_id: 0,
-            reserved: 0,
-            task_base_addr: 0,
-            hw_elapse_time: 0,
-            core_mask: RKNPU_CORE_AUTO_MASK,
-            fence_fd: -1,
-            subcore_task: [RknpuSubcoreTask::default(); RKNPU_MAX_SUBCORE_TASKS],
-        }
-    }
 }
 
 impl fmt::Debug for RknpuSubmit {
@@ -109,7 +92,7 @@ impl fmt::Debug for RknpuSubmit {
             .field("task_number", &self.task_number)
             .field("task_counter", &self.task_counter)
             .field("priority", &self.priority)
-            .field("task_obj_addr", &self.task_obj_addr)
+            .field("task_obj_paddr", &self.task_obj.bus_addr())
             .field("iommu_domain_id", &self.iommu_domain_id)
             .field("task_base_addr", &self.task_base_addr)
             .field("hw_elapse_time", &self.hw_elapse_time)
@@ -152,4 +135,16 @@ pub const fn core_mask_from_index(index: usize) -> u32 {
 /// Counts how many cores are enabled in the provided mask.
 pub const fn core_count_from_mask(mask: u32) -> u32 {
     mask.count_ones()
+}
+
+#[derive(Debug)]
+pub struct RknpuJob {
+    /// Number of cores to use for this job.
+    pub use_core_num: usize,
+    pub args: RknpuSubmit,
+    pub first_task: usize,
+    pub last_task: usize,
+    pub int_mask:[u32; RKNPU_MAX_CORES],
+    pub int_status:[u32; RKNPU_MAX_CORES], 
+    pub submit_count: [AtomicU32; RKNPU_MAX_CORES],
 }

@@ -1,8 +1,5 @@
-use crate::registers::consts::INT_CLEAR_ALL;
-use ::core::ptr::NonNull;
-use tock_registers::interfaces::{Readable, Writeable};
 use tock_registers::register_structs;
-use tock_registers::registers::{ReadOnly, ReadWrite, WriteOnly};
+use tock_registers::registers::*;
 
 register_structs! {
     /// Int register block starting at offset 0 relative to the int group base.
@@ -15,35 +12,6 @@ register_structs! {
     }
 }
 
-pub struct IntRegisters {
-    base: NonNull<IntRegs>,
-}
-
-impl IntRegisters {
-    /// Create an IntRegisters view for the interrupt group.
-    pub const unsafe fn from_base(base: NonNull<IntRegs>) -> Self {
-        Self { base }
-    }
-
-    fn as_ptr(&self) -> *const IntRegs {
-        self.base.as_ptr()
-    }
-
-    fn as_mut_ptr(&self) -> *mut IntRegs {
-        self.base.as_ptr()
-    }
-
-    /// Safety: see docs on `from_base` - caller must ensure mapping validity.
-    pub unsafe fn regs(&self) -> &'static IntRegs {
-        unsafe { &*self.as_ptr() }
-    }
-
-    /// Safety: caller must ensure exclusive mutable access.
-    pub unsafe fn regs_mut(&mut self) -> &'static mut IntRegs {
-        unsafe { &mut *self.as_mut_ptr() }
-    }
-}
-
 tock_registers::register_bitfields! {u32,
     INT_REGS [
         IRQ0 OFFSET(0) NUMBITS(1) [],
@@ -51,32 +19,4 @@ tock_registers::register_bitfields! {u32,
         IRQ2 OFFSET(2) NUMBITS(1) [],
         IRQ_ALL OFFSET(0) NUMBITS(32) []
     ]
-}
-
-impl IntRegisters {
-    /// Clear all interrupts by writing the driver's `RKNPU_INT_CLEAR` value.
-    ///
-    /// Safety: caller must ensure MMIO mapping validity.
-    pub unsafe fn clear_all(&mut self) {
-        let regs = unsafe { self.regs_mut() };
-        regs.int_clear.set(INT_CLEAR_ALL);
-    }
-
-    /// Write an interrupt mask value.
-    pub unsafe fn set_mask(&mut self, mask: u32) {
-        let regs = unsafe { self.regs_mut() };
-        regs.int_mask.set(mask);
-    }
-
-    /// Read the masked interrupt status.
-    pub unsafe fn read_status(&self) -> u32 {
-        let regs = unsafe { self.regs() };
-        regs.int_status.get()
-    }
-
-    /// Read the raw interrupt status.
-    pub unsafe fn read_raw_status(&self) -> u32 {
-        let regs = unsafe { self.regs() };
-        regs.int_raw_status.get()
-    }
 }

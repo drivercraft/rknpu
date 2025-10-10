@@ -7,7 +7,6 @@
 //! offsets across the driver.
 
 use ::core::ptr::NonNull;
-use tock_registers::interfaces::Readable;
 
 pub mod cna;
 pub mod consts;
@@ -23,6 +22,8 @@ pub mod ppu_rdma;
 pub mod sdma;
 
 use consts::*;
+
+use crate::registers::int::IntRegs;
 
 /// Immutable view over the RKNN register window.
 pub struct RknpuRegisters {
@@ -49,48 +50,48 @@ impl RknpuRegisters {
         }
     }
 
-    pub fn pc(&self) -> pc::PcRegisters {
-        unsafe { pc::PcRegisters::from_base(self.offset_ptr(PC_BASE_OFFSET)) }
+    pub fn pc(&self) -> &pc::PcRegs {
+        unsafe { self.offset_ptr(PC_BASE_OFFSET).as_ref() }
     }
 
-    pub fn int(&self) -> int::IntRegisters {
-        unsafe { int::IntRegisters::from_base(self.offset_ptr(INT_BASE_OFFSET)) }
+    pub fn int(&self) -> &IntRegs {
+        unsafe { self.offset_ptr(INT_BASE_OFFSET).as_ref() }
     }
 
-    pub fn cna(&self) -> cna::CnaRegisters {
-        unsafe { cna::CnaRegisters::from_base(self.offset_ptr(CNA_BASE_OFFSET)) }
+    pub fn cna(&self) -> &cna::CnaRegs {
+        unsafe { self.offset_ptr(CNA_BASE_OFFSET).as_ref() }
     }
 
-    pub fn core(&self) -> core::CoreRegisters {
-        unsafe { core::CoreRegisters::from_base(self.offset_ptr(CORE_BASE_OFFSET)) }
+    pub fn core(&self) -> &core::CoreRegs {
+        unsafe { self.offset_ptr(CORE_BASE_OFFSET).as_ref() }
     }
 
-    pub fn dpu(&self) -> dpu::DpuRegisters {
-        unsafe { dpu::DpuRegisters::from_base(self.offset_ptr(DPU_BASE_OFFSET)) }
+    pub fn dpu(&self) -> &dpu::DpuRegs {
+        unsafe { self.offset_ptr(DPU_BASE_OFFSET).as_ref() }
     }
 
-    pub fn dpu_rdma(&self) -> dpu_rdma::DpuRdmaRegisters {
-        unsafe { dpu_rdma::DpuRdmaRegisters::from_base(self.offset_ptr(DPU_RDMA_BASE_OFFSET)) }
+    pub fn dpu_rdma(&self) -> &dpu_rdma::DpuRdmaRegs {
+        unsafe { self.offset_ptr(DPU_RDMA_BASE_OFFSET).as_ref() }
     }
 
-    pub fn ppu(&self) -> ppu::PpuRegisters {
-        unsafe { ppu::PpuRegisters::from_base(self.offset_ptr(PPU_BASE_OFFSET)) }
+    pub fn ppu(&self) -> &ppu::PpuRegs {
+        unsafe { self.offset_ptr(PPU_BASE_OFFSET).as_ref() }
     }
 
-    pub fn ppu_rdma(&self) -> ppu_rdma::PpuRdmaRegisters {
-        unsafe { ppu_rdma::PpuRdmaRegisters::from_base(self.offset_ptr(PPU_RDMA_BASE_OFFSET)) }
+    pub fn ppu_rdma(&self) -> &ppu_rdma::PpuRdmaRegs {
+        unsafe { self.offset_ptr(PPU_RDMA_BASE_OFFSET).as_ref() }
     }
 
-    pub fn ddma(&self) -> ddma::DdmaRegisters {
-        unsafe { ddma::DdmaRegisters::from_base(self.offset_ptr(DDMA_BASE_OFFSET)) }
+    pub fn ddma(&self) -> &ddma::DdmaRegs {
+        unsafe { self.offset_ptr(DDMA_BASE_OFFSET).as_ref() }
     }
 
-    pub fn sdma(&self) -> sdma::SdmaRegisters {
-        unsafe { sdma::SdmaRegisters::from_base(self.offset_ptr(SDMA_BASE_OFFSET)) }
+    pub fn sdma(&self) -> &sdma::SdmaRegs {
+        unsafe { self.offset_ptr(SDMA_BASE_OFFSET).as_ref() }
     }
 
-    pub fn global(&self) -> global::GlobalRegisters {
-        unsafe { global::GlobalRegisters::from_base(self.offset_ptr(GLOBAL_BASE_OFFSET)) }
+    pub fn global(&self) -> &global::GlobalRegs {
+        unsafe { self.offset_ptr(GLOBAL_BASE_OFFSET).as_ref() }
     }
 
     pub fn version(&self) -> u32 {

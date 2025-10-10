@@ -1,4 +1,3 @@
-use ::core::ptr::NonNull;
 use tock_registers::{
     register_structs,
     registers::{ReadOnly, ReadWrite},
@@ -29,25 +28,5 @@ register_structs! {
         (0x0050 => pub data_format: ReadWrite<u32>),
         (0x0054 => pub misc_ctrl: ReadWrite<u32>),
         (0x0058 => @END),
-    }
-}
-
-pub struct PpuRegisters {
-    base: NonNull<PpuRegs>,
-}
-
-impl PpuRegisters {
-    pub const unsafe fn from_base(base: NonNull<PpuRegs>) -> Self {
-        Self { base }
-    }
-
-    #[inline]
-    pub fn regs(&self) -> &PpuRegs {
-        unsafe { self.base.as_ref() }
-    }
-
-    #[inline]
-    pub fn regs_mut(&mut self) -> &mut PpuRegs {
-        unsafe { self.base.as_mut() }
     }
 }

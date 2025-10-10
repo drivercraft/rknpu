@@ -1,4 +1,3 @@
-use ::core::ptr::NonNull;
 use tock_registers::{
     register_structs,
     registers::{ReadOnly, ReadWrite},
@@ -65,25 +64,5 @@ register_structs! {
         (0x0128 => pub lut_lo_slope_scale: ReadWrite<u32>),
         (0x012C => pub lut_lo_slope_shift: ReadWrite<u32>),
         (0x0130 => @END),
-    }
-}
-
-pub struct DpuRegisters {
-    base: NonNull<DpuRegs>,
-}
-
-impl DpuRegisters {
-    pub const unsafe fn from_base(base: NonNull<DpuRegs>) -> Self {
-        Self { base }
-    }
-
-    #[inline]
-    pub fn regs(&self) -> &DpuRegs {
-        unsafe { self.base.as_ref() }
-    }
-
-    #[inline]
-    pub fn regs_mut(&mut self) -> &mut DpuRegs {
-        unsafe { self.base.as_mut() }
     }
 }

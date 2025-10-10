@@ -13,7 +13,7 @@ extern crate alloc;
 #[macro_use]
 extern crate log;
 
-use core::ptr::NonNull;
+use core::{ptr::NonNull, sync::atomic::Ordering};
 
 mod config;
 mod data;
@@ -29,6 +29,7 @@ pub use err::*;
 pub use gem::*;
 pub use job::*;
 pub use osal::*;
+use spin::Mutex;
 use tock_registers::interfaces::*;
 
 use crate::{data::RknpuData, registers::RknpuRegisters};
@@ -36,6 +37,7 @@ use crate::{data::RknpuData, registers::RknpuRegisters};
 const VERSION_MAJOR: u32 = 0;
 const VERSION_MINOR: u32 = 9;
 const VERSION_PATCH: u32 = 8;
+const RKNPU_PC_DATA_EXTRA_AMOUNT: u32 = 4;
 
 const fn version(major: u32, minor: u32, patch: u32) -> u32 {
     major * 10000 + minor * 100 + patch
@@ -79,7 +81,7 @@ pub struct Rknpu {
     config: RknpuConfig,
     data: RknpuData,
     iommu_enabled: bool,
-    gem: RknpuGemManager,
+    irq_lock: Mutex<()>,
 }
 
 impl Rknpu {
@@ -101,7 +103,7 @@ impl Rknpu {
             data,
             config,
             iommu_enabled: false,
-            gem: RknpuGemManager::new(),
+            irq_lock: Mutex::new(()),
         }
     }
 
@@ -125,7 +127,7 @@ impl Rknpu {
         };
 
         if self.data.pc_dma_ctrl > 0 {
-            let pc_data_addr = self.base[0].pc().regs().base_address.get();
+            let pc_data_addr = self.base[0].pc().base_address.get();
             unsafe {
                 self.base[0]
                     .offset_ptr::<u32>(pc_data_addr as usize)
@@ -293,83 +295,71 @@ impl Rknpu {
         self.iommu_enabled = enabled;
     }
 
-    pub fn gem_manager(&self) -> &RknpuGemManager {
-        &self.gem
-    }
+    fn sub_core_submit(&mut self, job: &mut RknpuJob, core_idx: usize) -> Result<(), RknpuError> {
+        let mut task_start = job.args.task_start;
+        let mut task_number = job.args.task_number;
+        let submit_index = job.submit_count[core_idx].load(Ordering::Acquire);
+        let max_submit_number = self.data.max_submit_number as u32;
+        let pc_data_amount_scale = self.data.pc_data_amount_scale;
 
-    pub fn gem_manager_mut(&mut self) -> &mut RknpuGemManager {
-        &mut self.gem
-    }
-
-    /// Submit an inference workload to the hardware queue.
-    ///
-    /// The Rust port keeps the validation and bookkeeping behaviour from the
-    /// upstream C driver while replacing the blocking wait queues, DMA fences
-    /// and kernel list management with no-op placeholders so it can build in a
-    /// bare-metal context.  Unsupported features (such as explicit fence
-    /// handling) return `NotSupported` to mirror the `.config` options which
-    /// are disabled in this environment.
-    pub fn submit(&mut self, submit: &mut RknpuSubmit) -> Result<(), RknpuError> {
-        if submit.task_number == 0 {
-            return Err(RknpuError::InvalidParameter);
+        let base = &self.base[core_idx];
+        if self.data.irqs.get(core_idx).is_some() {
+            let val = 0xe + 0x10000000 * core_idx as u32;
+            base.cna().s_pointer.set(val);
+            base.core().s_pointer.set(val);
+        }
+        match job.use_core_num {
+            1 => {}
+            2 => {
+                task_start = job.args.subcore_task[core_idx].task_start;
+                task_number = job.args.subcore_task[core_idx].task_number;
+            }
+            3 => {
+                task_start = job.args.subcore_task[core_idx + 2].task_start;
+                task_number = job.args.subcore_task[core_idx + 2].task_number;
+            }
+            _ => {
+                error!("Invalid core number: {}", job.use_core_num);
+            }
         }
 
-        if submit.flags & (RKNPU_JOB_FENCE_IN | RKNPU_JOB_FENCE_OUT) != 0 {
-            // Fence support is gated behind CONFIG_ROCKCHIP_RKNPU_FENCE which
-            // is not enabled by the supplied kernel configuration.
-            return Err(RknpuError::NotSupported);
+        task_start += submit_index * max_submit_number;
+        task_number -= submit_index * max_submit_number;
+        task_number = task_number.min(max_submit_number);
+        let task_end = task_start + task_number - 1;
+
+        let first_task = unsafe {
+            &mut *(job.args.task_obj.as_ptr().add(task_start as usize) as *mut RknpuTask)
+        };
+        let last_task =
+            unsafe { &mut *(job.args.task_obj.as_ptr().add(task_end as usize) as *mut RknpuTask) };
+
+        if self.data.pc_dma_ctrl > 0 {
+            let g = self.irq_lock.lock();
+            base.pc().base_address.set(first_task.regcmd_addr as u32);
+            drop(g);
+        } else {
+            base.pc().base_address.set(first_task.regcmd_addr as u32);
         }
 
-        if !submit.is_pc_mode() {
-            // The PC (program counter) execution mode is the only flow kept in
-            // the minimal Rust implementation.
-            return Err(RknpuError::NotSupported);
-        }
+        base.pc().register_amounts.set(
+            (first_task.regcfg_amount + RKNPU_PC_DATA_EXTRA_AMOUNT).div_ceil(pc_data_amount_scale)
+                - 1,
+        );
 
-        let available_mask = self.data.core_mask;
-        let mut selected_mask = submit.core_mask;
+        base.int().int_mask.set(last_task.int_mask);
+        base.int().int_clear.set(first_task.int_mask);
 
-        if selected_mask == RKNPU_CORE_AUTO_MASK {
-            selected_mask = select_first_core(available_mask).ok_or(RknpuError::DeviceNotReady)?;
-        }
+        base.pc()
+            .task_dma_base_addr
+            .set(job.args.task_obj.bus_addr() as _);
 
-        if selected_mask == 0 {
-            return Err(RknpuError::InvalidParameter);
-        }
+        job.first_task = task_start as usize;
+        job.last_task = task_end as usize;
+        job.int_mask[core_idx] = last_task.int_mask;
 
-        if selected_mask & !available_mask != 0 {
-            return Err(RknpuError::InvalidParameter);
-        }
-
-        let task_handle =
-            RknpuGemHandle::from_raw(submit.task_obj_addr).ok_or(RknpuError::InvalidHandle)?;
-
-        let tasks = self
-            .gem
-            .task_slice(task_handle)
-            .ok_or(RknpuError::InvalidHandle)?;
-
-        let start = submit.task_start as usize;
-        let end = start
-            .checked_add(submit.task_number as usize)
-            .ok_or(RknpuError::InvalidParameter)?;
-
-        if end > tasks.len() {
-            return Err(RknpuError::InvalidParameter);
-        }
-
-        let selected_tasks = &tasks[start..end];
-        let last_task = selected_tasks.last().ok_or(RknpuError::InvalidParameter)?;
-
-        // For now we execute the job immediately instead of queueing it on a
-        // per-core work list.  Future OS bindings can hook into the placeholder
-        // and provide real scheduling.
-        let _placeholder_token = os_placeholder_schedule(selected_mask, submit.task_number);
-
-        submit.core_mask = selected_mask;
-        submit.task_counter = submit.task_number;
-        submit.hw_elapse_time = 0;
-        submit.task_base_addr = last_task.regcmd_addr;
+        base.pc().operation_enable.set(1);
+        base.pc().operation_enable.set(0);
 
         Ok(())
     }
@@ -381,15 +371,6 @@ fn select_first_core(available_mask: u32) -> Option<u32> {
         .map(core_mask_from_index)
         .find(|mask| available_mask & *mask != 0)
 }
-
-/// Placeholder representing the OS specific scheduling hook.
-fn os_placeholder_schedule(core_mask: u32, task_number: u32) -> CoreScheduleToken {
-    let _ = (core_mask, task_number);
-    CoreScheduleToken {}
-}
-
-/// Zero-sized token returned by the scheduling placeholder.
-struct CoreScheduleToken {}
 
 #[cfg(test)]
 mod tests {

@@ -3,9 +3,6 @@
 //! This module provides platform-agnostic abstractions for system-dependent operations
 //! such as memory management, time operations, and synchronization primitives.
 
-use alloc::vec::Vec;
-use core::ptr::NonNull;
-
 /// Physical address type
 pub type PhysAddr = u64;
 
