@@ -1,5 +1,5 @@
 use ::core::ptr::NonNull;
-use tock_registers::{interfaces::Readable, register_structs, registers::*};
+use tock_registers::{interfaces::*, register_structs, registers::*};
 
 register_structs! {
     #[allow(non_snake_case)]
@@ -35,11 +35,6 @@ impl PcRegisters {
     #[inline]
     pub fn regs(&self) -> &PcRegs {
         unsafe { self.base.as_ref() }
-    }
-
-    #[inline]
-    pub fn regs_mut(&mut self) -> &mut PcRegs {
-        unsafe { self.base.as_mut() }
     }
 }
 

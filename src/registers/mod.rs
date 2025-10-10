@@ -94,10 +94,6 @@ impl RknpuRegisters {
     }
 
     pub fn version(&self) -> u32 {
-        let pc = self.pc();
-        let regs = pc.regs();
-        regs.version
-            .get()
-            .wrapping_add(regs.version_num.get() & 0xffff)
+        self.pc().version()
     }
 }
