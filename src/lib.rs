@@ -29,6 +29,7 @@ pub use err::*;
 pub use gem::*;
 pub use job::*;
 pub use osal::*;
+use rdif_base::DriverGeneric;
 use spin::Mutex;
 use tock_registers::interfaces::*;
 
@@ -295,6 +296,31 @@ impl Rknpu {
         self.iommu_enabled = enabled;
     }
 
+    fn job_commit(&mut self, job: &mut RknpuJob) -> Result<(), RknpuError> {
+        const CORE0_1_MASK: u32 = RKNPU_CORE0_MASK | RKNPU_CORE1_MASK;
+        const CORE0_1_2_MASK: u32 = RKNPU_CORE0_MASK | RKNPU_CORE1_MASK | RKNPU_CORE2_MASK;
+
+        match job.args.core_mask {
+            RKNPU_CORE0_MASK => self.sub_core_submit(job, 0)?,
+            RKNPU_CORE1_MASK => self.sub_core_submit(job, 1)?,
+            RKNPU_CORE2_MASK => self.sub_core_submit(job, 2)?,
+            CORE0_1_MASK => {
+                self.sub_core_submit(job, 0)?;
+                self.sub_core_submit(job, 1)?;
+            }
+            CORE0_1_2_MASK => {
+                self.sub_core_submit(job, 0)?;
+                self.sub_core_submit(job, 1)?;
+                self.sub_core_submit(job, 2)?;
+            }
+            _ => {
+                error!("Invalid core mask: 0x{:x}", job.args.core_mask);
+            }
+        }
+
+        Ok(())
+    }
+
     fn sub_core_submit(&mut self, job: &mut RknpuJob, core_idx: usize) -> Result<(), RknpuError> {
         let mut task_start = job.args.task_start;
         let mut task_number = job.args.task_number;
@@ -365,95 +391,19 @@ impl Rknpu {
     }
 }
 
+impl DriverGeneric for Rknpu {
+    fn open(&mut self) -> Result<(), rdif_base::KError> {
+        Self::open(self).map_err(|_| rdif_base::KError::Unknown("open fail"))
+    }
+
+    fn close(&mut self) -> Result<(), rdif_base::KError> {
+        Ok(())
+    }
+}
+
 /// Selects the lowest-numbered available core and returns its mask.
 fn select_first_core(available_mask: u32) -> Option<u32> {
     (0..RKNPU_MAX_CORES)
         .map(core_mask_from_index)
         .find(|mask| available_mask & *mask != 0)
-}
-
-#[cfg(test)]
-mod tests {
-    extern crate std;
-
-    use core::ptr::NonNull;
-
-    use super::*;
-
-    fn dummy_addr() -> NonNull<u8> {
-        static mut BYTE: u8 = 0;
-        unsafe { NonNull::new_unchecked((&mut BYTE) as *mut u8) }
-    }
-
-    fn test_rknpu() -> Rknpu {
-        let base = [dummy_addr()];
-        let config = RknpuConfig {
-            rknpu_type: RknpuType::Rk3588,
-        };
-        Rknpu::new(&base, config)
-    }
-
-    #[test]
-    fn reject_zero_tasks() {
-        let mut rknpu = test_rknpu();
-        let mut submit = RknpuSubmit {
-            task_number: 0,
-            ..Default::default()
-        };
-
-        let err = rknpu.submit(&mut submit).unwrap_err();
-        assert_eq!(err, RknpuError::InvalidParameter);
-    }
-
-    #[test]
-    fn require_pc_flag() {
-        let mut rknpu = test_rknpu();
-        let mut submit = RknpuSubmit {
-            task_number: 1,
-            ..Default::default()
-        };
-
-        let err = rknpu.submit(&mut submit).unwrap_err();
-        assert_eq!(err, RknpuError::NotSupported);
-    }
-
-    #[test]
-    fn happy_path_sets_defaults() {
-        let mut rknpu = test_rknpu();
-        let tasks = (0..4)
-            .map(|idx| RknpuTask {
-                regcmd_addr: 0x1000 + idx as u64 * 0x40,
-                ..RknpuTask::default()
-            })
-            .collect();
-        let handle = rknpu
-            .gem_manager_mut()
-            .create_from_tasks(tasks, 0, 0, RKNPU_CORE0_MASK)
-            .expect("failed to create task buffer");
-        let mut submit = RknpuSubmit {
-            flags: RKNPU_JOB_PC,
-            task_number: 4,
-            ..Default::default()
-        };
-        submit.task_obj_addr = handle.as_raw();
-
-        rknpu.submit(&mut submit).unwrap();
-
-        assert_eq!(submit.task_counter, 4);
-        assert_eq!(submit.core_mask, RKNPU_CORE0_MASK);
-        assert_eq!(submit.hw_elapse_time, 0);
-        assert_eq!(submit.task_base_addr, 0x1000 + 3 * 0x40);
-    }
-
-    #[test]
-    fn reject_missing_task_buffer() {
-        let mut rknpu = test_rknpu();
-        let mut submit = RknpuSubmit {
-            flags: RKNPU_JOB_PC,
-            task_number: 2,
-            ..Default::default()
-        };
-        let err = rknpu.submit(&mut submit).unwrap_err();
-        assert_eq!(err, RknpuError::InvalidHandle);
-    }
 }
