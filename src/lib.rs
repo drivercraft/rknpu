@@ -296,6 +296,108 @@ impl Rknpu {
         self.iommu_enabled = enabled;
     }
 
+    /// Commit a prepared job descriptor to the hardware command parser.
+    pub fn commit_job(&mut self, job: &mut RknpuJob) -> Result<(), RknpuError> {
+        self.job_commit(job)
+    }
+
+    /// Busy-wait until the specified interrupt mask is observed for the given core.
+    pub fn wait_for_completion(
+        &mut self,
+        core_idx: usize,
+        mask: u32,
+        timeout: usize,
+    ) -> Result<(), RknpuError> {
+        if mask == 0 {
+            return Err(RknpuError::InvalidParameter);
+        }
+
+        let Some(base) = self.base.get(core_idx) else {
+            return Err(RknpuError::InvalidParameter);
+        };
+
+        // Clear any stale status bits before we start polling.
+        base.pc().interrupt_clear.set(mask);
+
+        const LOG_INTERVAL: usize = 10_000;
+        for iteration in 0..timeout {
+            let status = base.pc().interrupt_status.get();
+            if status & mask == mask {
+                base.pc().interrupt_clear.set(mask);
+                return Ok(());
+            }
+
+            if iteration % LOG_INTERVAL == 0 {
+                let raw_status = base.pc().interrupt_raw_status.get();
+                let global_status = base.int().int_status.get();
+                let global_raw = base.int().int_raw_status.get();
+                let enable = base.pc().operation_enable.get();
+                let task_status = base.pc().task_status.get();
+                let pc_mask = base.pc().interrupt_mask.get();
+                let pc_base = base.pc().base_address.get();
+                let reg_amounts = base.pc().register_amounts.get();
+                let task_control = base.pc().task_control.get();
+                let task_dma = base.pc().task_dma_base_addr.get();
+                let global_mask = base.int().int_mask.get();
+                let global_enable = base.global().enable_mask.get();
+                debug!(
+                    "wait_for_completion[core={}]: iter={} status=0x{:x} raw=0x{:x} pc_mask=0x{:x} pc_base=0x{:x} reg_amounts=0x{:x} task_ctrl=0x{:x} task_dma=0x{:x} op_enable=0x{:x} task_status=0x{:x} global_mask=0x{:x} global_status=0x{:x} global_raw=0x{:x} global_enable=0x{:x}",
+                    core_idx,
+                    iteration,
+                    status,
+                    raw_status,
+                    pc_mask,
+                    pc_base,
+                    reg_amounts,
+                    task_control,
+                    task_dma,
+                    enable,
+                    task_status,
+                    global_mask,
+                    global_status,
+                    global_raw,
+                    global_enable
+                );
+            }
+
+            core::hint::spin_loop();
+        }
+
+        let final_status = base.pc().interrupt_status.get();
+        let final_raw = base.pc().interrupt_raw_status.get();
+        let final_global_status = base.int().int_status.get();
+        let final_global_raw = base.int().int_raw_status.get();
+        let final_enable = base.pc().operation_enable.get();
+        let final_task_status = base.pc().task_status.get();
+        let final_pc_mask = base.pc().interrupt_mask.get();
+        let final_pc_base = base.pc().base_address.get();
+        let final_reg_amounts = base.pc().register_amounts.get();
+        let final_task_control = base.pc().task_control.get();
+        let final_task_dma = base.pc().task_dma_base_addr.get();
+        let final_global_mask = base.int().int_mask.get();
+        let final_global_enable = base.global().enable_mask.get();
+        error!(
+            "wait_for_completion timeout: core={} mask=0x{:x} status=0x{:x} raw=0x{:x} pc_mask=0x{:x} pc_base=0x{:x} reg_amounts=0x{:x} task_ctrl=0x{:x} task_dma=0x{:x} op_enable=0x{:x} task_status=0x{:x} global_mask=0x{:x} global_status=0x{:x} global_raw=0x{:x} global_enable=0x{:x}",
+            core_idx,
+            mask,
+            final_status,
+            final_raw,
+            final_pc_mask,
+            final_pc_base,
+            final_reg_amounts,
+            final_task_control,
+            final_task_dma,
+            final_enable,
+            final_task_status,
+            final_global_mask,
+            final_global_status,
+            final_global_raw,
+            final_global_enable
+        );
+
+        Err(RknpuError::Timeout)
+    }
+
     fn job_commit(&mut self, job: &mut RknpuJob) -> Result<(), RknpuError> {
         const CORE0_1_MASK: u32 = RKNPU_CORE0_MASK | RKNPU_CORE1_MASK;
         const CORE0_1_2_MASK: u32 = RKNPU_CORE0_MASK | RKNPU_CORE1_MASK | RKNPU_CORE2_MASK;
@@ -373,8 +475,19 @@ impl Rknpu {
                 - 1,
         );
 
+        let task_pp_en = (job.args.flags & RKNPU_JOB_PINGPONG) != 0;
+        let task_control = registers::pc::PcRegs::build_pc_task_control(
+            self.data.pc_task_number_bits as u8,
+            task_pp_en,
+            task_number,
+        );
+
+        base.pc().interrupt_mask.set(last_task.int_mask);
+        base.pc().interrupt_clear.set(first_task.int_mask);
         base.int().int_mask.set(last_task.int_mask);
         base.int().int_clear.set(first_task.int_mask);
+
+        base.pc().task_control.set(task_control);
 
         base.pc()
             .task_dma_base_addr
@@ -383,6 +496,27 @@ impl Rknpu {
         job.first_task = task_start as usize;
         job.last_task = task_end as usize;
         job.int_mask[core_idx] = last_task.int_mask;
+
+        let regcmd_addr =
+            unsafe { core::ptr::read_unaligned(core::ptr::addr_of!(first_task.regcmd_addr)) };
+        let regcfg_amount =
+            unsafe { core::ptr::read_unaligned(core::ptr::addr_of!(first_task.regcfg_amount)) };
+
+        debug!(
+            "sub_core_submit[core={}]: submit_index={} task_range=[{}..={}] regcmd=0x{:x} regcfg_amount=0x{:x} reg_amounts=0x{:x} task_ctrl=0x{:x} task_dma=0x{:x} pc_mask=0x{:x} global_mask=0x{:x} global_enable=0x{:x}",
+            core_idx,
+            submit_index,
+            task_start,
+            task_end,
+            regcmd_addr,
+            regcfg_amount,
+            base.pc().register_amounts.get(),
+            base.pc().task_control.get(),
+            base.pc().task_dma_base_addr.get(),
+            base.pc().interrupt_mask.get(),
+            base.int().int_mask.get(),
+            base.global().enable_mask.get()
+        );
 
         base.pc().operation_enable.set(1);
         base.pc().operation_enable.set(0);
@@ -402,6 +536,7 @@ impl DriverGeneric for Rknpu {
 }
 
 /// Selects the lowest-numbered available core and returns its mask.
+#[allow(dead_code)]
 fn select_first_core(available_mask: u32) -> Option<u32> {
     (0..RKNPU_MAX_CORES)
         .map(core_mask_from_index)

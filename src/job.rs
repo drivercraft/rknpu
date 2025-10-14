@@ -144,7 +144,7 @@ pub struct RknpuJob {
     pub args: RknpuSubmit,
     pub first_task: usize,
     pub last_task: usize,
-    pub int_mask:[u32; RKNPU_MAX_CORES],
-    pub int_status:[u32; RKNPU_MAX_CORES], 
+    pub int_mask: [u32; RKNPU_MAX_CORES],
+    pub int_status: [u32; RKNPU_MAX_CORES],
     pub submit_count: [AtomicU32; RKNPU_MAX_CORES],
 }
