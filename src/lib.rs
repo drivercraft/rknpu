@@ -319,7 +319,7 @@ impl Rknpu {
         // Clear any stale status bits before we start polling.
         base.pc().interrupt_clear.set(mask);
 
-        const LOG_INTERVAL: usize = 10_000;
+        const LOG_INTERVAL: usize = 100_000;
         for iteration in 0..timeout {
             let status = base.pc().interrupt_status.get();
             if status & mask == mask {
@@ -482,16 +482,23 @@ impl Rknpu {
             task_number,
         );
 
-        base.pc().interrupt_mask.set(last_task.int_mask);
-        base.pc().interrupt_clear.set(first_task.int_mask);
-        base.int().int_mask.set(last_task.int_mask);
-        base.int().int_clear.set(first_task.int_mask);
+        const PC_INTERRUPT_VALID_MASK: u32 = (1 << 14) - 1;
+        let interrupt_bits = last_task.int_mask & PC_INTERRUPT_VALID_MASK;
+        let clear_bits = first_task.int_clear & PC_INTERRUPT_VALID_MASK;
+
+        base.pc().interrupt_mask.set(interrupt_bits);
+        base.pc().interrupt_clear.set(clear_bits);
+        base.int().int_mask.set(interrupt_bits);
+        base.int().int_clear.set(clear_bits);
 
         base.pc().task_control.set(task_control);
 
         base.pc()
             .task_dma_base_addr
             .set(job.args.task_obj.bus_addr() as _);
+
+        // Ensure the global interrupt mask honours the task's enable mask
+        base.global().enable_mask.set(first_task.enable_mask);
 
         job.first_task = task_start as usize;
         job.last_task = task_end as usize;

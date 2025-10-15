@@ -16,6 +16,15 @@ mod tests {
         globals::{PlatformInfoKind, global_val},
         mem::{iomap, page_size},
     };
+    use rk3588_clk::{
+        Rk3588Cru,
+        constant::{
+            ACLK_NPU0, ACLK_NPU1, ACLK_NPU2, CLK_CORE_NPU_PVTM, CLK_NPU_CM0_RTC, CLK_NPU_DSU0,
+            CLK_NPU_PVTM, CLK_NPUTIMER_ROOT, CLK_NPUTIMER0, CLK_NPUTIMER1, FCLK_NPU_CM0_CORE,
+            HCLK_NPU_CM0_ROOT, HCLK_NPU_ROOT, HCLK_NPU0, HCLK_NPU1, HCLK_NPU2, PCLK_NPU_GRF,
+            PCLK_NPU_PVTM, PCLK_NPU_ROOT, PCLK_NPU_TIMER, PCLK_NPU_WDT, TCLK_NPU_WDT,
+        },
+    };
     use rknpu::{Rknpu, RknpuConfig, RknpuType};
     use rockchip_pm::{PD, RkBoard, RockchipPM};
 
@@ -41,6 +50,9 @@ mod tests {
         pm.power_domain_on(NPU2).unwrap();
 
         info!("Powered on NPU domains");
+
+        configure_npu_clocks();
+        info!("Configured NPU clock tree");
 
         let mut npu = find_rknpu();
         npu.open().unwrap();
@@ -113,9 +125,77 @@ mod tests {
         iomap(start.into(), end - start)
     }
 
+    fn configure_npu_clocks() {
+        let cru_addr = get_cru_addr();
+        let cru = Rk3588Cru::new(cru_addr);
+
+        // Program the primary NPU clock tree to known-good defaults. Ignore failures for now.
+        let _ = cru.npu_set_clk(HCLK_NPU_ROOT, 200_000_000);
+        let _ = cru.npu_set_clk(CLK_NPU_DSU0, 800_000_000);
+        let _ = cru.npu_set_clk(PCLK_NPU_ROOT, 100_000_000);
+        let _ = cru.npu_set_clk(HCLK_NPU_CM0_ROOT, 200_000_000);
+        let _ = cru.npu_set_clk(CLK_NPU_CM0_RTC, 24_000_000);
+        let _ = cru.npu_set_clk(CLK_NPUTIMER_ROOT, 100_000_000);
+
+        // Ensure the essential gates are open.
+        for gate in [
+            ACLK_NPU0,
+            HCLK_NPU0,
+            ACLK_NPU1,
+            HCLK_NPU1,
+            ACLK_NPU2,
+            HCLK_NPU2,
+            PCLK_NPU_PVTM,
+            PCLK_NPU_GRF,
+            CLK_NPU_PVTM,
+            CLK_CORE_NPU_PVTM,
+            PCLK_NPU_TIMER,
+            CLK_NPUTIMER0,
+            CLK_NPUTIMER1,
+            PCLK_NPU_WDT,
+            TCLK_NPU_WDT,
+            FCLK_NPU_CM0_CORE,
+        ] {
+            if let Err(err) = cru.npu_gate_enable(gate) {
+                warn!("Failed to enable gate {gate}: {err}");
+            }
+        }
+    }
+
+    fn get_cru_addr() -> NonNull<u8> {
+        let PlatformInfoKind::DeviceTree(fdt) = &global_val().platform_info;
+        let fdt = fdt.get();
+
+        let node = fdt
+            .find_compatible(&["rockchip,rk3588-cru"])
+            .next()
+            .expect("Failed to find CRU node");
+
+        info!("Found node: {}", node.name());
+
+        let reg = node
+            .reg()
+            .and_then(|mut regs| regs.next())
+            .expect("CRU node missing reg range");
+
+        let start_raw = reg.address as usize;
+        let size = reg.size.unwrap_or(page_size());
+
+        let start = start_raw & !(page_size() - 1);
+        let end = (start_raw + size + page_size() - 1) & !(page_size() - 1);
+        let offset = start_raw - start;
+
+        let mapping = iomap(start.into(), end - start);
+        let ptr = unsafe { mapping.as_ptr().add(offset) };
+
+        // SAFETY: iomap guarantees a valid mapping; offset is within bounds.
+        unsafe { NonNull::new_unchecked(ptr) }
+    }
+
     mod matmul {
         use alloc::{vec, vec::Vec};
         use core::{array, convert::TryFrom, fmt, mem, ptr::NonNull, sync::atomic::AtomicU32};
+        use spin::Once;
 
         use dma_api::{DError, DVec, Direction, Osal};
         use rknpu::{
@@ -127,7 +207,7 @@ mod tests {
         const MATMUL_DIMS: MatmulDims = MatmulDims { m: 4, k: 32, n: 16 };
         const REGCMD_WORDS: usize = 112;
         const TASK_SIZE: usize = mem::size_of::<RknpuTask>();
-        const DMA_MASK: u64 = u64::MAX;
+        const DMA_MASK: u64 = u32::MAX as _;
         const DMA_ALIGN: usize = 0x1000;
         const BUFFER_ALIGN: usize = 0x40;
         const PC_DATA_EXTRA_AMOUNT: u32 = 4;
@@ -137,33 +217,31 @@ mod tests {
         pub fn run(npu: &mut Rknpu) -> Result<(), MatmulError> {
             let _ = npu.action(RknpuAction::ActReset);
 
-            let reference = prepare_reference(MATMUL_DIMS);
-
-            let mut regcmd =
-                DVec::<u64>::zeros(DMA_MASK, REGCMD_WORDS, DMA_ALIGN, Direction::ToDevice).unwrap();
-            let mut task_obj =
-                DVec::<u8>::zeros(DMA_MASK, TASK_SIZE, DMA_ALIGN, Direction::ToDevice).unwrap();
-            let mut input = DVec::<i8>::zeros(
-                DMA_MASK,
+            let mut regcmd = dma_vec::<u64>(REGCMD_WORDS, DMA_ALIGN, Direction::ToDevice).unwrap();
+            let mut task_obj = dma_vec::<u8>(TASK_SIZE, DMA_ALIGN, Direction::ToDevice).unwrap();
+            let mut input = dma_vec::<i8>(
                 MATMUL_DIMS.m * MATMUL_DIMS.k,
                 BUFFER_ALIGN,
                 Direction::ToDevice,
             )
             .unwrap();
-            let mut weights = DVec::<i8>::zeros(
-                DMA_MASK,
+
+            let mut weights = dma_vec::<i8>(
                 MATMUL_DIMS.n * MATMUL_DIMS.k,
                 BUFFER_ALIGN,
                 Direction::ToDevice,
             )
             .unwrap();
-            let output = DVec::<i32>::zeros(
-                DMA_MASK,
+            let output = dma_vec::<i32>(
                 MATMUL_DIMS.m * MATMUL_DIMS.n,
                 BUFFER_ALIGN,
                 Direction::FromDevice,
-            )?;
+            )
+            .unwrap();
 
+            log_dma_buffers(&regcmd, &task_obj, &input, &weights, &output);
+
+            let reference = prepare_reference(MATMUL_DIMS);
             populate_weights(&reference, &mut weights);
             populate_input(&reference, &mut input);
 
@@ -273,14 +351,34 @@ mod tests {
             }
         }
 
-        struct IdentityOsal;
+        fn dma_vec<T>(
+            len: usize,
+            align: usize,
+            direction: Direction,
+        ) -> Result<DVec<T>, MatmulError> {
+            DVec::zeros(DMA_MASK, len, align, direction).map_err(MatmulError::from)
+        }
 
-        impl Osal for IdentityOsal {
-            fn map(&self, addr: NonNull<u8>, _size: usize, _direction: Direction) -> u64 {
-                addr.as_ptr() as u64
-            }
-
-            fn unmap(&self, _addr: NonNull<u8>, _size: usize) {}
+        fn log_dma_buffers(
+            regcmd: &DVec<u64>,
+            task_obj: &DVec<u8>,
+            input: &DVec<i8>,
+            weights: &DVec<i8>,
+            output: &DVec<i32>,
+        ) {
+            info!(
+                "DMA buffers: regcmd ptr=0x{:x} bus=0x{:x}, task ptr=0x{:x} bus=0x{:x}, input ptr=0x{:x} bus=0x{:x}, weights ptr=0x{:x} bus=0x{:x}, output ptr=0x{:x} bus=0x{:x}",
+                regcmd.as_ptr() as usize,
+                regcmd.bus_addr(),
+                task_obj.as_ptr() as usize,
+                task_obj.bus_addr(),
+                input.as_ptr() as usize,
+                input.bus_addr(),
+                weights.as_ptr() as usize,
+                weights.bus_addr(),
+                output.as_ptr() as usize,
+                output.bus_addr()
+            );
         }
 
         #[derive(Clone, Copy)]
