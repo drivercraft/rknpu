@@ -12,10 +12,11 @@ mod tests {
     use core::ptr::NonNull;
 
     use alloc::vec::Vec;
+    use arm_scmi::{Scmi, Shmem, Smc};
     use bare_test::{
-        globals::{PlatformInfoKind, global_val},
-        mem::{iomap, page_size},
+        globals::{global_val, PlatformInfoKind}, irq::Phandle, mem::{iomap, page_size}
     };
+    use num_align::NumAlign;
     use rk3588_clk::{
         Rk3588Cru,
         constant::{
@@ -39,6 +40,8 @@ mod tests {
 
     #[test]
     fn it_works() {
+        set_up_scmi();
+
         let reg = get_syscon_addr();
         let board = RkBoard::Rk3588;
 
@@ -50,9 +53,6 @@ mod tests {
         pm.power_domain_on(NPU2).unwrap();
 
         info!("Powered on NPU domains");
-
-        configure_npu_clocks();
-        info!("Configured NPU clock tree");
 
         let mut npu = find_rknpu();
         npu.open().unwrap();
@@ -82,6 +82,18 @@ mod tests {
                 break;
             }
         }
+        let clk_ls = node.clocks().collect::<Vec<_>>();
+        let mut clk_ctrl = configure_npu_clocks();
+        info!("Configured NPU clock tree");
+        for clk in &clk_ls {
+            info!("Clock: {:?}", clk);
+            if clk.node.name().contains("protocol") {
+                continue;
+            }
+            clk_ctrl.npu_gate_enable(clk.select as _).unwrap();
+        }
+
+        panic!("clk_ls not supported yet");
 
         let config = config.expect("Unsupported RKNPU compatible");
 
@@ -125,41 +137,42 @@ mod tests {
         iomap(start.into(), end - start)
     }
 
-    fn configure_npu_clocks() {
+    fn configure_npu_clocks() -> Rk3588Cru {
         let cru_addr = get_cru_addr();
-        let cru = Rk3588Cru::new(cru_addr);
+        Rk3588Cru::new(cru_addr)
+        // let cru = Rk3588Cru::new(cru_addr);
 
-        // Program the primary NPU clock tree to known-good defaults. Ignore failures for now.
-        let _ = cru.npu_set_clk(HCLK_NPU_ROOT, 200_000_000);
-        let _ = cru.npu_set_clk(CLK_NPU_DSU0, 800_000_000);
-        let _ = cru.npu_set_clk(PCLK_NPU_ROOT, 100_000_000);
-        let _ = cru.npu_set_clk(HCLK_NPU_CM0_ROOT, 200_000_000);
-        let _ = cru.npu_set_clk(CLK_NPU_CM0_RTC, 24_000_000);
-        let _ = cru.npu_set_clk(CLK_NPUTIMER_ROOT, 100_000_000);
+        // // Program the primary NPU clock tree to known-good defaults. Ignore failures for now.
+        // let _ = cru.npu_set_clk(HCLK_NPU_ROOT, 200_000_000);
+        // let _ = cru.npu_set_clk(CLK_NPU_DSU0, 800_000_000);
+        // let _ = cru.npu_set_clk(PCLK_NPU_ROOT, 100_000_000);
+        // let _ = cru.npu_set_clk(HCLK_NPU_CM0_ROOT, 200_000_000);
+        // let _ = cru.npu_set_clk(CLK_NPU_CM0_RTC, 24_000_000);
+        // let _ = cru.npu_set_clk(CLK_NPUTIMER_ROOT, 100_000_000);
 
-        // Ensure the essential gates are open.
-        for gate in [
-            ACLK_NPU0,
-            HCLK_NPU0,
-            ACLK_NPU1,
-            HCLK_NPU1,
-            ACLK_NPU2,
-            HCLK_NPU2,
-            PCLK_NPU_PVTM,
-            PCLK_NPU_GRF,
-            CLK_NPU_PVTM,
-            CLK_CORE_NPU_PVTM,
-            PCLK_NPU_TIMER,
-            CLK_NPUTIMER0,
-            CLK_NPUTIMER1,
-            PCLK_NPU_WDT,
-            TCLK_NPU_WDT,
-            FCLK_NPU_CM0_CORE,
-        ] {
-            if let Err(err) = cru.npu_gate_enable(gate) {
-                warn!("Failed to enable gate {gate}: {err}");
-            }
-        }
+        // // Ensure the essential gates are open.
+        // for gate in [
+        //     ACLK_NPU0,
+        //     HCLK_NPU0,
+        //     ACLK_NPU1,
+        //     HCLK_NPU1,
+        //     ACLK_NPU2,
+        //     HCLK_NPU2,
+        //     PCLK_NPU_PVTM,
+        //     PCLK_NPU_GRF,
+        //     CLK_NPU_PVTM,
+        //     CLK_CORE_NPU_PVTM,
+        //     PCLK_NPU_TIMER,
+        //     CLK_NPUTIMER0,
+        //     CLK_NPUTIMER1,
+        //     PCLK_NPU_WDT,
+        //     TCLK_NPU_WDT,
+        //     FCLK_NPU_CM0_CORE,
+        // ] {
+        //     if let Err(err) = cru.npu_gate_enable(gate) {
+        //         warn!("Failed to enable gate {gate}: {err}");
+        //     }
+        // }
     }
 
     fn get_cru_addr() -> NonNull<u8> {
@@ -190,6 +203,71 @@ mod tests {
 
         // SAFETY: iomap guarantees a valid mapping; offset is within bounds.
         unsafe { NonNull::new_unchecked(ptr) }
+    }
+
+    fn set_up_scmi() {
+        let PlatformInfoKind::DeviceTree(fdt) = &global_val().platform_info;
+        let fdt = fdt.get();
+        let node = fdt
+            .find_compatible(&["arm,scmi-smc"])
+            .next()
+            .expect("scmi not found");
+
+        info!("found scmi node: {:?}", node.name());
+
+        let shmem_ph: Phandle = node
+            .find_property("shmem")
+            .expect("shmem property not found")
+            .u32()
+            .into();
+
+        let shmem_node = fdt
+            .get_node_by_phandle(shmem_ph)
+            .expect("shmem node not found");
+
+        info!("found shmem node: {:?}", shmem_node.name());
+
+        let shmem_reg = shmem_node.reg().unwrap().collect::<Vec<_>>();
+        assert_eq!(shmem_reg.len(), 1);
+        let shmem_reg = shmem_reg[0];
+        let shmem_addr = iomap(
+            (shmem_reg.address as usize).into(),
+            shmem_reg.size.unwrap().align_up(0x1000),
+        );
+
+        let func_id = node
+            .find_property("arm,smc-id")
+            .expect("function-id property not found")
+            .u32();
+
+        info!("shmem reg: {:?}", shmem_reg);
+        info!("func_id: {:#x}", func_id);
+
+        let irq_num = node.find_property("a2p").map(|irq_prop| irq_prop.u32());
+
+        let shmem = Shmem {
+            address: shmem_addr,
+            bus_address: shmem_reg.child_bus_address as usize,
+            size: shmem_reg.size.unwrap(),
+        };
+        let kind = Smc::new(func_id, irq_num);
+        let scmi = Scmi::new(kind, shmem);
+
+        let mut pclk = scmi.protocol_clk();
+
+        let ls = [
+            (0u32, "clk0", 0x30a32c00),
+            (2u32, "clk1", 0x30a32c00),
+            (3u32, "clk2", 0x30a32c00),
+        ];
+        for (id, name, clk) in ls {
+            pclk.clk_enable(id).unwrap();
+            let rate = pclk.rate_get(id).unwrap();
+            info!("Clock {} (id={}): rate={} Hz", name, id, rate);
+            pclk.rate_set(id, clk).unwrap();
+            let rate = pclk.rate_get(id).unwrap();
+            info!("Clock {} (id={}): new rate={} Hz", name, id, rate);
+        }
     }
 
     mod matmul {
@@ -255,11 +333,13 @@ mod tests {
             regcmd.copy_from_slice(&ops);
 
             let regcfg_amount = (REGCMD_WORDS as u32).saturating_sub(PC_DATA_EXTRA_AMOUNT + 4);
+            const PC_INT_MASK: u32 = 0xD4;
+
             let task = RknpuTask {
                 flags: 0,
                 op_idx: 0,
                 enable_mask: 0xD,
-                int_mask: 0x1,
+                int_mask: PC_INT_MASK,
                 int_clear: 0x1_FFFF,
                 int_status: 0,
                 regcfg_amount,

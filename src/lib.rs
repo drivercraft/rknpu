@@ -33,12 +33,16 @@ use rdif_base::DriverGeneric;
 use spin::Mutex;
 use tock_registers::interfaces::*;
 
-use crate::{data::RknpuData, registers::RknpuRegisters};
+use crate::{
+    data::RknpuData,
+    registers::{RknpuRegisters, consts::INT_CLEAR_ALL},
+};
 
 const VERSION_MAJOR: u32 = 0;
 const VERSION_MINOR: u32 = 9;
 const VERSION_PATCH: u32 = 8;
 const RKNPU_PC_DATA_EXTRA_AMOUNT: u32 = 4;
+const PC_INTERRUPT_VALID_MASK: u32 = (1 << 14) - 1;
 
 const fn version(major: u32, minor: u32, patch: u32) -> u32 {
     major * 10000 + minor * 100 + patch
@@ -317,18 +321,35 @@ impl Rknpu {
         };
 
         // Clear any stale status bits before we start polling.
-        base.pc().interrupt_clear.set(mask);
+        base.pc()
+            .interrupt_clear
+            .set(mask & PC_INTERRUPT_VALID_MASK);
+        base.int().int_clear.set(mask & PC_INTERRUPT_VALID_MASK);
 
         const LOG_INTERVAL: usize = 100_000;
+        let mut observed: u32 = 0;
         for iteration in 0..timeout {
-            let status = base.pc().interrupt_status.get();
-            if status & mask == mask {
-                base.pc().interrupt_clear.set(mask);
-                return Ok(());
+            let raw_status = base.pc().interrupt_raw_status.get();
+            let valid_status = raw_status & PC_INTERRUPT_VALID_MASK;
+
+            if valid_status != 0 {
+                observed |= valid_status;
+                // Acknowledge the interrupt sources so the hardware can
+                // continue progressing through the pipeline.
+                base.pc()
+                    .interrupt_clear
+                    .set(INT_CLEAR_ALL & PC_INTERRUPT_VALID_MASK);
+                base.int()
+                    .int_clear
+                    .set(INT_CLEAR_ALL & PC_INTERRUPT_VALID_MASK);
+
+                if observed & mask == mask {
+                    return Ok(());
+                }
             }
 
             if iteration % LOG_INTERVAL == 0 {
-                let raw_status = base.pc().interrupt_raw_status.get();
+                let status = base.pc().interrupt_status.get();
                 let global_status = base.int().int_status.get();
                 let global_raw = base.int().int_raw_status.get();
                 let enable = base.pc().operation_enable.get();
@@ -482,7 +503,6 @@ impl Rknpu {
             task_number,
         );
 
-        const PC_INTERRUPT_VALID_MASK: u32 = (1 << 14) - 1;
         let interrupt_bits = last_task.int_mask & PC_INTERRUPT_VALID_MASK;
         let clear_bits = first_task.int_clear & PC_INTERRUPT_VALID_MASK;
 

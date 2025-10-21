@@ -8,10 +8,7 @@
 
 #![allow(dead_code)]
 
-use core::{
-    fmt,
-    sync::atomic::{AtomicU32, AtomicUsize},
-};
+use core::{fmt, sync::atomic::AtomicU32};
 
 use dma_api::DVec;
 
