@@ -164,7 +164,7 @@ impl RknpuCore {
         self.pc().operation_enable.set(0);
 
         for task in submit_tasks {
-            debug!("Submitted task: {:?}", task);
+            debug!("Submitted task: {:#x?}", task);
         }
 
         Ok(submit_tasks.len())
