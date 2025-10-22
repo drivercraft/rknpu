@@ -13,6 +13,7 @@ rdif-base = {version = "0.7"}
 spin = "0.10"
 thiserror = {version = "2.0", default-features = false}
 tock-registers = "0.10"
+bitflags = "2"
 
 [dev-dependencies]
 arm-scmi = {git = "https://github.com/drivercraft/arm-scmi"}

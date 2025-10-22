@@ -13,7 +13,7 @@ extern crate alloc;
 #[macro_use]
 extern crate log;
 
-use core::{ptr::NonNull, sync::atomic::Ordering};
+use core::ptr::NonNull;
 
 mod config;
 mod data;
@@ -22,6 +22,7 @@ mod gem;
 mod job;
 mod osal;
 mod registers;
+mod task;
 
 use alloc::vec::Vec;
 pub use config::*;
@@ -31,11 +32,12 @@ pub use job::*;
 pub use osal::*;
 use rdif_base::DriverGeneric;
 use spin::Mutex;
+pub use task::*;
 use tock_registers::interfaces::*;
 
 use crate::{
     data::RknpuData,
-    registers::{RknpuRegisters, consts::INT_CLEAR_ALL},
+    registers::{RknpuCore, consts::INT_CLEAR_ALL},
 };
 
 const VERSION_MAJOR: u32 = 0;
@@ -81,7 +83,7 @@ pub enum RknpuAction {
 }
 
 pub struct Rknpu {
-    base: Vec<RknpuRegisters>,
+    base: Vec<RknpuCore>,
     #[allow(dead_code)]
     config: RknpuConfig,
     data: RknpuData,
@@ -103,7 +105,7 @@ impl Rknpu {
         Self {
             base: base_addrs
                 .iter()
-                .map(|&addr| unsafe { RknpuRegisters::new(addr) })
+                .map(|&addr| unsafe { RknpuCore::new(addr) })
                 .collect(),
             data,
             config,
@@ -300,10 +302,10 @@ impl Rknpu {
         self.iommu_enabled = enabled;
     }
 
-    /// Commit a prepared job descriptor to the hardware command parser.
-    pub fn commit_job(&mut self, job: &mut RknpuJob) -> Result<(), RknpuError> {
-        self.job_commit(job)
-    }
+    // /// Commit a prepared job descriptor to the hardware command parser.
+    // pub fn commit_job(&mut self, job: &mut RknpuJob) -> Result<(), RknpuError> {
+    //     self.job_commit(job)
+    // }
 
     /// Busy-wait until the specified interrupt mask is observed for the given core.
     pub fn wait_for_completion(
@@ -419,134 +421,40 @@ impl Rknpu {
         Err(RknpuError::Timeout)
     }
 
-    fn job_commit(&mut self, job: &mut RknpuJob) -> Result<(), RknpuError> {
-        const CORE0_1_MASK: u32 = RKNPU_CORE0_MASK | RKNPU_CORE1_MASK;
-        const CORE0_1_2_MASK: u32 = RKNPU_CORE0_MASK | RKNPU_CORE1_MASK | RKNPU_CORE2_MASK;
+    // fn job_commit(&mut self, job: &mut RknpuJob) -> Result<(), RknpuError> {
+    //     const CORE0_1_MASK: u32 = RKNPU_CORE0_MASK | RKNPU_CORE1_MASK;
+    //     const CORE0_1_2_MASK: u32 = RKNPU_CORE0_MASK | RKNPU_CORE1_MASK | RKNPU_CORE2_MASK;
 
-        match job.args.core_mask {
-            RKNPU_CORE0_MASK => self.sub_core_submit(job, 0)?,
-            RKNPU_CORE1_MASK => self.sub_core_submit(job, 1)?,
-            RKNPU_CORE2_MASK => self.sub_core_submit(job, 2)?,
-            CORE0_1_MASK => {
-                self.sub_core_submit(job, 0)?;
-                self.sub_core_submit(job, 1)?;
-            }
-            CORE0_1_2_MASK => {
-                self.sub_core_submit(job, 0)?;
-                self.sub_core_submit(job, 1)?;
-                self.sub_core_submit(job, 2)?;
-            }
-            _ => {
-                error!("Invalid core mask: 0x{:x}", job.args.core_mask);
-            }
-        }
+    //     match job.args.core_mask {
+    //         RKNPU_CORE0_MASK => self.sub_core_submit(job, 0)?,
+    //         RKNPU_CORE1_MASK => self.sub_core_submit(job, 1)?,
+    //         RKNPU_CORE2_MASK => self.sub_core_submit(job, 2)?,
+    //         CORE0_1_MASK => {
+    //             self.sub_core_submit(job, 0)?;
+    //             self.sub_core_submit(job, 1)?;
+    //         }
+    //         CORE0_1_2_MASK => {
+    //             self.sub_core_submit(job, 0)?;
+    //             self.sub_core_submit(job, 1)?;
+    //             self.sub_core_submit(job, 2)?;
+    //         }
+    //         _ => {
+    //             error!("Invalid core mask: 0x{:x}", job.args.core_mask);
+    //         }
+    //     }
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
-    fn sub_core_submit(&mut self, job: &mut RknpuJob, core_idx: usize) -> Result<(), RknpuError> {
-        let mut task_start = job.args.task_start;
-        let mut task_number = job.args.task_number;
-        let submit_index = job.submit_count[core_idx].load(Ordering::Acquire);
-        let max_submit_number = self.data.max_submit_number as u32;
-        let pc_data_amount_scale = self.data.pc_data_amount_scale;
-
-        let base = &self.base[core_idx];
-        if self.data.irqs.get(core_idx).is_some() {
-            let val = 0xe + 0x10000000 * core_idx as u32;
-            base.cna().s_pointer.set(val);
-            base.core().s_pointer.set(val);
-        }
-        match job.use_core_num {
-            1 => {}
-            2 => {
-                task_start = job.args.subcore_task[core_idx].task_start;
-                task_number = job.args.subcore_task[core_idx].task_number;
-            }
-            3 => {
-                task_start = job.args.subcore_task[core_idx + 2].task_start;
-                task_number = job.args.subcore_task[core_idx + 2].task_number;
-            }
-            _ => {
-                error!("Invalid core number: {}", job.use_core_num);
-            }
-        }
-
-        task_start += submit_index * max_submit_number;
-        task_number -= submit_index * max_submit_number;
-        task_number = task_number.min(max_submit_number);
-        let task_end = task_start + task_number - 1;
-
-        let first_task = unsafe {
-            &mut *(job.args.task_obj.as_ptr().add(task_start as usize) as *mut RknpuTask)
-        };
-        let last_task =
-            unsafe { &mut *(job.args.task_obj.as_ptr().add(task_end as usize) as *mut RknpuTask) };
-
-        if self.data.pc_dma_ctrl > 0 {
-            let g = self.irq_lock.lock();
-            base.pc().base_address.set(first_task.regcmd_addr as u32);
-            drop(g);
-        } else {
-            base.pc().base_address.set(first_task.regcmd_addr as u32);
-        }
-
-        base.pc().register_amounts.set(
-            (first_task.regcfg_amount + RKNPU_PC_DATA_EXTRA_AMOUNT).div_ceil(pc_data_amount_scale)
-                - 1,
-        );
-
-        let task_pp_en = (job.args.flags & RKNPU_JOB_PINGPONG) != 0;
-        let task_control = registers::pc::PcRegs::build_pc_task_control(
-            self.data.pc_task_number_bits as u8,
-            task_pp_en,
-            task_number,
-        );
-
-        let interrupt_bits = last_task.int_mask & PC_INTERRUPT_VALID_MASK;
-        let clear_bits = first_task.int_clear & PC_INTERRUPT_VALID_MASK;
-
-        base.pc().interrupt_mask.set(interrupt_bits);
-        base.pc().interrupt_clear.set(clear_bits);
-        base.int().int_mask.set(interrupt_bits);
-        base.int().int_clear.set(clear_bits);
-
-        base.pc().task_control.set(task_control);
-
-        base.pc()
-            .task_dma_base_addr
-            .set(job.args.task_obj.bus_addr() as _);
-
-        // Ensure the global interrupt mask honours the task's enable mask
-        base.global().enable_mask.set(first_task.enable_mask);
-
-        job.first_task = task_start as usize;
-        job.last_task = task_end as usize;
-        job.int_mask[core_idx] = last_task.int_mask;
-
-        let regcmd_addr =
-            unsafe { core::ptr::read_unaligned(core::ptr::addr_of!(first_task.regcmd_addr)) };
-        let regcfg_amount =
-            unsafe { core::ptr::read_unaligned(core::ptr::addr_of!(first_task.regcfg_amount)) };
-
-        debug!(
-            "sub_core_submit[core={}]: submit_index={} task_range=[{}..={}] regcmd=0x{:x} regcfg_amount=0x{:x} reg_amounts=0x{:x} task_ctrl=0x{:x} task_dma=0x{:x} pc_mask=0x{:x} global_mask=0x{:x} global_enable=0x{:x}",
+    pub fn submit(&mut self, job: &mut RknpuSubmitK, core_idx: usize) -> Result<(), RknpuError> {
+        job.tasks.confirm_write_all();
+        self.base[core_idx].submit(
+            &self.data,
+            job.flags,
+            job.tasks.as_ref(),
+            job.tasks.bus_addr() as _,
             core_idx,
-            submit_index,
-            task_start,
-            task_end,
-            regcmd_addr,
-            regcfg_amount,
-            base.pc().register_amounts.get(),
-            base.pc().task_control.get(),
-            base.pc().task_dma_base_addr.get(),
-            base.pc().interrupt_mask.get(),
-            base.int().int_mask.get(),
-            base.global().enable_mask.get()
-        );
-
-        base.pc().operation_enable.set(1);
-        base.pc().operation_enable.set(0);
+        )?;
 
         Ok(())
     }

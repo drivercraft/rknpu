@@ -61,9 +61,24 @@ pub struct RknpuSubcoreTask {
     pub task_number: u32,
 }
 
+bitflags::bitflags! {
+    /// Internal job submission flags.
+    #[repr(C)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct  JobMode: u32 {
+        const SLAVE = 0 << 0;
+        const PC = 1 << 0;
+        const BLOCK = 0 << 1;
+        const NONBLOCK = 1 << 1;
+        const PINGPONG = 1 << 2;
+        const FENCE_IN = 1 << 3;
+        const FENCE_OUT = 1 << 4;
+    }
+}
+
 /// Submission descriptor mirroring the userspace ABI.
 pub struct RknpuSubmit {
-    pub flags: u32,
+    pub flags: JobMode,
     pub timeout: u32,
     pub task_start: u32,
     pub task_number: u32,
@@ -110,12 +125,12 @@ impl RknpuSubmit {
 
     /// Returns true if the submission requests non-blocking execution.
     pub fn is_nonblocking(&self) -> bool {
-        self.flags & RKNPU_JOB_NONBLOCK != 0
+        self.flags.contains(JobMode::NONBLOCK)
     }
 
     /// Returns true if PC mode was requested.
     pub fn is_pc_mode(&self) -> bool {
-        self.flags & RKNPU_JOB_PC != 0
+        self.flags.contains(JobMode::PC)
     }
 }
 
