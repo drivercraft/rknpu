@@ -10,7 +10,7 @@ extern crate bare_test;
 
 #[bare_test::tests]
 mod tests {
-    use core::ptr::NonNull;
+    use core::{ptr::NonNull, time::Duration};
 
     use alloc::vec::Vec;
     use arm_scmi::{Scmi, Shmem, Smc};
@@ -18,6 +18,7 @@ mod tests {
         globals::{PlatformInfoKind, global_val},
         irq::Phandle,
         mem::{iomap, page_size},
+        time::spin_delay,
     };
     use num_align::NumAlign;
     use rk3588_clk::{
@@ -294,6 +295,10 @@ mod tests {
             },
         );
 
+        let bstatus = npu.handle_interrupt0();
+
+        info!("NPU interrupt status before matmul: 0x{:x}", bstatus);
+
         npu_matmul.set_a_b(&a_data, &b_data);
         let mut job = RknpuSubmitK::new(vec![npu_matmul]);
         npu.submit(&mut job, 0).unwrap();
@@ -301,6 +306,22 @@ mod tests {
         info!("Submitted matmul job to NPU");
 
         info!("want {:?}", &want[..16]);
+
+        loop {
+            spin_delay(Duration::from_millis(500));
+            let status = npu.handle_interrupt0();
+            if status != bstatus {
+                info!("NPU interrupt status after matmul: 0x{:x}", status);
+                break;
+            }
+        }
+
+        let actual = job.ops[0].output();
+
+        info!("actual {:?}", &actual[..16]);
+
+        assert_eq!(want, actual);
+        info!("Matmul result matches expected output");
     }
 
     fn matmul_int(m: usize, k: usize, n: usize, src0: &[i8], src1: &[i8], dst: &mut [i32]) {

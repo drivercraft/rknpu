@@ -88,7 +88,6 @@ pub struct Rknpu {
     config: RknpuConfig,
     data: RknpuData,
     iommu_enabled: bool,
-    irq_lock: Mutex<()>,
 }
 
 impl Rknpu {
@@ -110,7 +109,6 @@ impl Rknpu {
             data,
             config,
             iommu_enabled: false,
-            irq_lock: Mutex::new(()),
         }
     }
 
@@ -457,6 +455,10 @@ impl Rknpu {
         )?;
 
         Ok(())
+    }
+
+    pub fn handle_interrupt0(&mut self) -> u32 {
+        self.base[0].handle_interrupt()
     }
 }
 

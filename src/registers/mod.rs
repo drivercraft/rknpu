@@ -22,8 +22,8 @@ pub mod ppu_rdma;
 pub mod sdma;
 
 use consts::*;
-use mbarrier::wmb;
-use tock_registers::interfaces::Writeable;
+
+use tock_registers::interfaces::{Readable, Writeable};
 
 use crate::{JobMode, RknpuError, RknpuTask, data::RknpuData, registers::int::IntRegs};
 
@@ -163,6 +163,42 @@ impl RknpuCore {
         self.pc().operation_enable.set(1);
         self.pc().operation_enable.set(0);
 
+        for task in submit_tasks {
+            debug!("Submitted task: {:?}", task);
+        }
+
         Ok(submit_tasks.len())
     }
+
+    pub fn handle_interrupt(&mut self) -> u32 {
+        let int_status = self.pc().interrupt_status.get();
+
+        self.pc().interrupt_clear.set(INT_CLEAR_ALL);
+
+        rknpu_fuzz_status(int_status)
+    }
+}
+
+#[inline(always)]
+pub fn rknpu_fuzz_status(status: u32) -> u32 {
+    let mut fuzz_status = 0;
+    if (status & 0x3) != 0 {
+        fuzz_status |= 0x3;
+    }
+    if (status & 0xc) != 0 {
+        fuzz_status |= 0xc;
+    }
+    if (status & 0x30) != 0 {
+        fuzz_status |= 0x30;
+    }
+    if (status & 0xc0) != 0 {
+        fuzz_status |= 0xc0;
+    }
+    if (status & 0x300) != 0 {
+        fuzz_status |= 0x300;
+    }
+    if (status & 0xc00) != 0 {
+        fuzz_status |= 0xc00;
+    }
+    fuzz_status
 }

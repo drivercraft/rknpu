@@ -38,7 +38,7 @@ pub struct Matmul {
     reg_cmds: DVec<u64>,
     input: DVec<i8>,
     weight: DVec<i8>,
-    output: DVec<i8>,
+    output: DVec<i32>,
 }
 
 impl Matmul {
@@ -67,14 +67,12 @@ impl Matmul {
                 Direction::Bidirectional,
             )
             .unwrap(),
-            output: DVec::zeros(
-                u32::MAX as _,
-                m * n * size_of::<u8>(),
-                0x1000,
-                Direction::Bidirectional,
-            )
-            .unwrap(),
+            output: DVec::zeros(u32::MAX as _, m * n, 0x1000, Direction::Bidirectional).unwrap(),
         }
+    }
+
+    pub fn output(&self) -> &[i32] {
+        self.output.as_ref()
     }
 
     fn as_task(&mut self) -> RknpuTask {
@@ -220,8 +218,7 @@ impl Matmul {
             int_mask: 0x300, // wait for DPU to finish
             int_clear: 0x1ffff,
             int_status: 0,
-            regcfg_amount: self.reg_cmds.len() as u32 / size_of::<u64>() as u32
-                - (RKNPU_PC_DATA_EXTRA_AMOUNT + 4),
+            regcfg_amount: self.reg_cmds.len() as u32 - (RKNPU_PC_DATA_EXTRA_AMOUNT + 4),
             regcfg_offset: 0,
             regcmd_addr: self.reg_cmds.bus_addr(),
         }
@@ -573,13 +570,8 @@ pub struct RknpuSubmitK {
 
 impl RknpuSubmitK {
     pub fn new(mut ops: Vec<Matmul>) -> Self {
-        let mut tasks = DVec::zeros(
-            u32::MAX as _,
-            ops.len() * size_of::<RknpuTask>(),
-            0x1000,
-            Direction::Bidirectional,
-        )
-        .unwrap();
+        let mut tasks =
+            DVec::zeros(u32::MAX as _, ops.len(), 0x1000, Direction::Bidirectional).unwrap();
 
         for (i, op) in ops.iter_mut().enumerate() {
             // Prepare task for each matmul operation
