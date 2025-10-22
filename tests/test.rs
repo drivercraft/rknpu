@@ -93,8 +93,6 @@ mod tests {
             clk_ctrl.npu_gate_enable(clk.select as _).unwrap();
         }
 
-        panic!("clk_ls not supported yet");
-
         let config = config.expect("Unsupported RKNPU compatible");
 
         let regs = node.reg().unwrap();

@@ -8,20 +8,17 @@ aarch64-cpu-ext = "0.1"
 dma-api = {version = "0.5", features = ["alloc"]}
 log = "0.4"
 mbarrier = "0.1"
+num-align = "0.1"
 rdif-base = {version = "0.7"}
 spin = "0.10"
 thiserror = {version = "2.0", default-features = false}
 tock-registers = "0.10"
-num-align = "0.1"
 
 [dev-dependencies]
+arm-scmi = {git = "https://github.com/drivercraft/arm-scmi"}
 bare-test = "0.7"
 rk3588-clk = {git = "https://github.com/drivercraft/rk3588-clk"}
 rockchip-pm = {git = "https://github.com/drivercraft/rockchip-pm"}
-arm-scmi = {git = "https://github.com/drivercraft/arm-scmi"}
-
-[patch."https://github.com/drivercraft/rk3588-clk"]
-rk3588-clk = {path = "../rk3588-clk"}
 
 [build-dependencies]
 bare-test-macros = "0.2"
