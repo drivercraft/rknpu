@@ -1,6 +1,5 @@
 use alloc::collections::btree_map::BTreeMap;
 use dma_api::{DVec, Direction};
-use spin::Mutex;
 
 use crate::ioctrl::{RknpuMemCreate, RknpuMemSync};
 
