@@ -8,10 +8,6 @@
 
 #![allow(dead_code)]
 
-use core::{fmt, sync::atomic::AtomicU32};
-
-use dma_api::DVec;
-
 /// Maximum number of hardware cores supported by the IP.
 pub const RKNPU_MAX_CORES: usize = 3;
 
@@ -76,7 +72,6 @@ bitflags::bitflags! {
     }
 }
 
-
 /// Helper calculating the mask for the given core index.
 pub const fn core_mask_from_index(index: usize) -> u32 {
     match index {
@@ -90,16 +85,4 @@ pub const fn core_mask_from_index(index: usize) -> u32 {
 /// Counts how many cores are enabled in the provided mask.
 pub const fn core_count_from_mask(mask: u32) -> u32 {
     mask.count_ones()
-}
-
-#[derive(Debug)]
-pub struct RknpuJob {
-    /// Number of cores to use for this job.
-    pub use_core_num: usize,
-    pub args: RknpuSubmit,
-    pub first_task: usize,
-    pub last_task: usize,
-    pub int_mask: [u32; RKNPU_MAX_CORES],
-    pub int_status: [u32; RKNPU_MAX_CORES],
-    pub submit_count: [AtomicU32; RKNPU_MAX_CORES],
 }
