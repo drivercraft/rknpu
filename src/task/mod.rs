@@ -80,6 +80,14 @@ impl Matmul {
         let mut core_desc = NpuCoreDesc::default();
         let mut dpu_desc = NpuDpuDesc::default();
 
+        debug!(
+            "Generating matmul task: M={}, K={}, N={}",
+            self.m, self.k, self.n
+        );
+        debug!("Input feature address: {:#x}", self.input.bus_addr());
+        debug!("Weight address: {:#x}", self.weight.bus_addr());
+        debug!("Output address: {:#x}", self.output.bus_addr());
+
         cna_desc.conv_mode = DIRECT_CONVOLUTION;
         cna_desc.in_precision = Precision::Int8 as u8;
         cna_desc.proc_precision = Precision::Int8 as u8;
@@ -550,7 +558,7 @@ fn weight_int8(C: i32, k: i32, c: i32) -> i32 {
     dst
 }
 
-fn feature_data(C: i32, H: i32, W: i32, C2: i32, c: i32, h: i32, w: i32) -> i32 {
+pub fn feature_data(C: i32, H: i32, W: i32, C2: i32, c: i32, h: i32, w: i32) -> i32 {
     let plane = (c - 1) / C2;
     let src = plane * H * W * C2;
     let offset = (c - 1) % C2;
@@ -565,6 +573,7 @@ const fn npu_op(op: u32, value: u32, reg: u32) -> u64 {
 pub struct RknpuSubmitK {
     pub flags: JobMode,
     pub tasks: DVec<RknpuTask>,
+    pub task_base_addr: u32,
     pub ops: Vec<Matmul>,
 }
 
@@ -582,6 +591,7 @@ impl RknpuSubmitK {
             flags: JobMode::PC | JobMode::BLOCK | JobMode::PINGPONG,
             tasks,
             ops,
+            task_base_addr: 0,
         }
     }
 }

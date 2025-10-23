@@ -29,6 +29,7 @@ use crate::{JobMode, RknpuError, RknpuTask, data::RknpuData, registers::int::Int
 
 const RKNPU_PC_DATA_EXTRA_AMOUNT: u32 = 4;
 
+#[derive(Clone)]
 /// Immutable view over the RKNN register window.
 pub struct RknpuCore {
     base: NonNull<u8>,
@@ -127,6 +128,9 @@ impl RknpuCore {
 
         if config.irqs.get(core_idx).is_some() {
             let val = 0xe + 0x10000000 * core_idx as u32;
+
+            debug!("Set PC S_POINTER to {:#x}", val);
+
             self.cna().s_pointer.set(val);
             self.core().s_pointer.set(val);
         }
@@ -137,13 +141,18 @@ impl RknpuCore {
             tasks
         };
 
-        self.pc()
-            .base_address
-            .set(submit_tasks[0].regcmd_addr as u32);
+        let pc_base_addr = submit_tasks[0].regcmd_addr as u32;
+
+        debug!("Set PC BASE_ADDRESS to {:#x}", pc_base_addr);
+
+        self.pc().base_address.set(pc_base_addr);
 
         let amount = (submit_tasks[0].regcfg_amount + RKNPU_PC_DATA_EXTRA_AMOUNT)
             .div_ceil(pc_data_amount_scale)
             - 1;
+
+        debug!("Set PC REGISTER_AMOUNTS to {:#x}", amount);
+
         self.pc().register_amounts.set(amount);
 
         self.pc()
@@ -154,10 +163,12 @@ impl RknpuCore {
             .set(submit_tasks.last().unwrap().int_clear);
         let task_number = submit_tasks.len() as u32;
 
+        let task_control = ((0x6 | task_pp_en) << pc_task_number_bits) | task_number;
+        debug!("Set PC TASK_CONTROL to {:#x}", task_control);
         self.pc()
             .task_control
-            .set(((0x6 | task_pp_en) << pc_task_number_bits) | task_number);
-
+            .set(task_control);
+        debug!("Set PC TASK_DMA_BASE_ADDR to {:#x}", task_base_addr);
         self.pc().task_dma_base_addr.set(task_base_addr);
 
         self.pc().operation_enable.set(1);
@@ -170,11 +181,9 @@ impl RknpuCore {
         Ok(submit_tasks.len())
     }
 
-    pub fn handle_interrupt(&mut self) -> u32 {
+    pub fn handle_interrupt(&self) -> u32 {
         let int_status = self.pc().interrupt_status.get();
-
         self.pc().interrupt_clear.set(INT_CLEAR_ALL);
-
         rknpu_fuzz_status(int_status)
     }
 }

@@ -305,120 +305,6 @@ impl Rknpu {
     //     self.job_commit(job)
     // }
 
-    /// Busy-wait until the specified interrupt mask is observed for the given core.
-    pub fn wait_for_completion(
-        &mut self,
-        core_idx: usize,
-        mask: u32,
-        timeout: usize,
-    ) -> Result<(), RknpuError> {
-        if mask == 0 {
-            return Err(RknpuError::InvalidParameter);
-        }
-
-        let Some(base) = self.base.get(core_idx) else {
-            return Err(RknpuError::InvalidParameter);
-        };
-
-        // Clear any stale status bits before we start polling.
-        base.pc()
-            .interrupt_clear
-            .set(mask & PC_INTERRUPT_VALID_MASK);
-        base.int().int_clear.set(mask & PC_INTERRUPT_VALID_MASK);
-
-        const LOG_INTERVAL: usize = 100_000;
-        let mut observed: u32 = 0;
-        for iteration in 0..timeout {
-            let raw_status = base.pc().interrupt_raw_status.get();
-            let valid_status = raw_status & PC_INTERRUPT_VALID_MASK;
-
-            if valid_status != 0 {
-                observed |= valid_status;
-                // Acknowledge the interrupt sources so the hardware can
-                // continue progressing through the pipeline.
-                base.pc()
-                    .interrupt_clear
-                    .set(INT_CLEAR_ALL & PC_INTERRUPT_VALID_MASK);
-                base.int()
-                    .int_clear
-                    .set(INT_CLEAR_ALL & PC_INTERRUPT_VALID_MASK);
-
-                if observed & mask == mask {
-                    return Ok(());
-                }
-            }
-
-            if iteration % LOG_INTERVAL == 0 {
-                let status = base.pc().interrupt_status.get();
-                let global_status = base.int().int_status.get();
-                let global_raw = base.int().int_raw_status.get();
-                let enable = base.pc().operation_enable.get();
-                let task_status = base.pc().task_status.get();
-                let pc_mask = base.pc().interrupt_mask.get();
-                let pc_base = base.pc().base_address.get();
-                let reg_amounts = base.pc().register_amounts.get();
-                let task_control = base.pc().task_control.get();
-                let task_dma = base.pc().task_dma_base_addr.get();
-                let global_mask = base.int().int_mask.get();
-                let global_enable = base.global().enable_mask.get();
-                debug!(
-                    "wait_for_completion[core={}]: iter={} status=0x{:x} raw=0x{:x} pc_mask=0x{:x} pc_base=0x{:x} reg_amounts=0x{:x} task_ctrl=0x{:x} task_dma=0x{:x} op_enable=0x{:x} task_status=0x{:x} global_mask=0x{:x} global_status=0x{:x} global_raw=0x{:x} global_enable=0x{:x}",
-                    core_idx,
-                    iteration,
-                    status,
-                    raw_status,
-                    pc_mask,
-                    pc_base,
-                    reg_amounts,
-                    task_control,
-                    task_dma,
-                    enable,
-                    task_status,
-                    global_mask,
-                    global_status,
-                    global_raw,
-                    global_enable
-                );
-            }
-
-            core::hint::spin_loop();
-        }
-
-        let final_status = base.pc().interrupt_status.get();
-        let final_raw = base.pc().interrupt_raw_status.get();
-        let final_global_status = base.int().int_status.get();
-        let final_global_raw = base.int().int_raw_status.get();
-        let final_enable = base.pc().operation_enable.get();
-        let final_task_status = base.pc().task_status.get();
-        let final_pc_mask = base.pc().interrupt_mask.get();
-        let final_pc_base = base.pc().base_address.get();
-        let final_reg_amounts = base.pc().register_amounts.get();
-        let final_task_control = base.pc().task_control.get();
-        let final_task_dma = base.pc().task_dma_base_addr.get();
-        let final_global_mask = base.int().int_mask.get();
-        let final_global_enable = base.global().enable_mask.get();
-        error!(
-            "wait_for_completion timeout: core={} mask=0x{:x} status=0x{:x} raw=0x{:x} pc_mask=0x{:x} pc_base=0x{:x} reg_amounts=0x{:x} task_ctrl=0x{:x} task_dma=0x{:x} op_enable=0x{:x} task_status=0x{:x} global_mask=0x{:x} global_status=0x{:x} global_raw=0x{:x} global_enable=0x{:x}",
-            core_idx,
-            mask,
-            final_status,
-            final_raw,
-            final_pc_mask,
-            final_pc_base,
-            final_reg_amounts,
-            final_task_control,
-            final_task_dma,
-            final_enable,
-            final_task_status,
-            final_global_mask,
-            final_global_status,
-            final_global_raw,
-            final_global_enable
-        );
-
-        Err(RknpuError::Timeout)
-    }
-
     // fn job_commit(&mut self, job: &mut RknpuJob) -> Result<(), RknpuError> {
     //     const CORE0_1_MASK: u32 = RKNPU_CORE0_MASK | RKNPU_CORE1_MASK;
     //     const CORE0_1_2_MASK: u32 = RKNPU_CORE0_MASK | RKNPU_CORE1_MASK | RKNPU_CORE2_MASK;
@@ -450,7 +336,7 @@ impl Rknpu {
             &self.data,
             job.flags,
             job.tasks.as_ref(),
-            job.tasks.bus_addr() as _,
+            job.task_base_addr,
             core_idx,
         )?;
 
@@ -459,6 +345,21 @@ impl Rknpu {
 
     pub fn handle_interrupt0(&mut self) -> u32 {
         self.base[0].handle_interrupt()
+    }
+
+    pub fn new_irq_handler(&self, core_idx: usize) -> RknpuIrqHandler {
+        RknpuIrqHandler(self.base[core_idx].clone())
+    }
+}
+
+pub struct RknpuIrqHandler(RknpuCore);
+
+unsafe impl Send for RknpuIrqHandler {}
+unsafe impl Sync for RknpuIrqHandler {}
+
+impl RknpuIrqHandler {
+    pub fn handle(&self) -> u32 {
+        self.0.handle_interrupt()
     }
 }
 

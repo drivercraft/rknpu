@@ -2,6 +2,8 @@
 #![no_main]
 #![feature(used_with_arg)]
 
+use rknpu::feature_data;
+
 #[macro_use]
 extern crate alloc;
 #[macro_use]
@@ -10,13 +12,14 @@ extern crate bare_test;
 
 #[bare_test::tests]
 mod tests {
-    use core::{ptr::NonNull, time::Duration};
+    use core::{ptr::NonNull, sync::atomic::AtomicU32, time::Duration};
 
     use alloc::vec::Vec;
     use arm_scmi::{Scmi, Shmem, Smc};
     use bare_test::{
+        GetIrqConfig,
         globals::{PlatformInfoKind, global_val},
-        irq::Phandle,
+        irq::{IrqHandleResult, IrqParam, Phandle},
         mem::{iomap, page_size},
         time::spin_delay,
     };
@@ -30,7 +33,7 @@ mod tests {
             PCLK_NPU_PVTM, PCLK_NPU_ROOT, PCLK_NPU_TIMER, PCLK_NPU_WDT, TCLK_NPU_WDT,
         },
     };
-    use rknpu::{Matmul, Rknpu, RknpuConfig, RknpuSubmitK, RknpuType, Sharp};
+    use rknpu::{Matmul, Rknpu, RknpuConfig, RknpuSubmitK, RknpuType, Sharp, feature_data};
     use rockchip_pm::{PD, RkBoard, RockchipPM};
 
     /// NPU 主电源域
@@ -41,6 +44,8 @@ mod tests {
     pub const NPU1: PD = PD(10);
     /// NPU2 电源域
     pub const NPU2: PD = PD(11);
+
+    static IRQ_STATUS: AtomicU32 = AtomicU32::new(0);
 
     #[test]
     fn it_works() {
@@ -86,16 +91,16 @@ mod tests {
                 break;
             }
         }
-        let clk_ls = node.clocks().collect::<Vec<_>>();
-        let mut clk_ctrl = configure_npu_clocks();
-        info!("Configured NPU clock tree");
-        for clk in &clk_ls {
-            info!("Clock: {:?}", clk);
-            if clk.node.name().contains("protocol") {
-                continue;
-            }
-            clk_ctrl.npu_gate_enable(clk.select as _).unwrap();
-        }
+        // let clk_ls = node.clocks().collect::<Vec<_>>();
+        // let mut clk_ctrl = configure_npu_clocks();
+        // info!("Configured NPU clock tree");
+        // for clk in &clk_ls {
+        //     info!("Clock: {:?}", clk);
+        //     if clk.node.name().contains("protocol") {
+        //         continue;
+        //     }
+        //     clk_ctrl.npu_gate_enable(clk.select as _).unwrap();
+        // }
 
         let config = config.expect("Unsupported RKNPU compatible");
 
@@ -114,8 +119,24 @@ mod tests {
 
             base_regs.push(unsafe { iomap(start.into(), size).add(offset) });
         }
+        let rknpu = Rknpu::new(&base_regs, config);
 
-        Rknpu::new(&base_regs, config)
+        let irq_handler0 = rknpu.new_irq_handler(0);
+
+        let irq_info = node.irq_info().unwrap();
+
+        IrqParam {
+            intc: irq_info.irq_parent,
+            cfg: irq_info.cfgs[0].clone(),
+        }
+        .register_builder(move |_| {
+            let status = irq_handler0.handle();
+            IRQ_STATUS.store(status, core::sync::atomic::Ordering::SeqCst);
+            IrqHandleResult::Handled
+        })
+        .register();
+
+        rknpu
     }
 
     fn get_syscon_addr() -> NonNull<u8> {
@@ -305,22 +326,36 @@ mod tests {
 
         info!("Submitted matmul job to NPU");
 
-        info!("want {:?}", &want[..16]);
+        info!("raw {:?}", &want[..16]);
 
         loop {
             spin_delay(Duration::from_millis(500));
-            let status = npu.handle_interrupt0();
+            let status = IRQ_STATUS.load(core::sync::atomic::Ordering::SeqCst);
+
+            // let status = npu.handle_interrupt0();
             if status != bstatus {
                 info!("NPU interrupt status after matmul: 0x{:x}", status);
                 break;
             }
         }
 
-        let actual = job.ops[0].output();
+        let actual_data = job.ops[0].output();
 
-        info!("actual {:?}", &actual[..16]);
+        info!("return {:?}", &actual_data[..16]);
 
-        assert_eq!(want, actual);
+        let M = m as _;
+        let N = n as _;
+        for m in 1..=M {
+            for n in 1..=N {
+                let actual: i32 = actual_data[feature_data(N, M, 1, 4, n, m, 1) as usize];
+                let expected = want[(((m - 1) * N) + (n - 1)) as usize];
+                assert_eq!(
+                    actual, expected,
+                    "Matmul result mismatch at m={}, n={}: actual {}, expected {}",
+                    m, n, actual, expected
+                );
+            }
+        }
         info!("Matmul result matches expected output");
     }
 
