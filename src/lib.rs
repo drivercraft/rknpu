@@ -36,7 +36,7 @@ pub use osal::*;
 use rdif_base::DriverGeneric;
 pub use task::*;
 use tock_registers::interfaces::*;
-mod ioctrl;
+pub mod ioctrl;
 
 use crate::{data::RknpuData, registers::RknpuCore};
 
