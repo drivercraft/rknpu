@@ -1,7 +1,10 @@
 use alloc::collections::btree_map::BTreeMap;
 use dma_api::{DVec, Direction};
 
-use crate::ioctrl::{RknpuMemCreate, RknpuMemSync};
+use crate::{
+    RknpuError,
+    ioctrl::{RknpuMemCreate, RknpuMemSync},
+};
 
 pub struct GemPool {
     pool: BTreeMap<u32, DVec<u8>>,
@@ -14,7 +17,7 @@ impl GemPool {
         }
     }
 
-    pub fn create(&mut self, args: &mut RknpuMemCreate) {
+    pub fn create(&mut self, args: &mut RknpuMemCreate) -> Result<(), RknpuError> {
         let data = DVec::zeros(
             u32::MAX as _,
             args.size as _,
@@ -26,6 +29,7 @@ impl GemPool {
         args.sram_size = data.len() as _;
         args.dma_addr = data.bus_addr();
         self.pool.insert(args.handle, data);
+        Ok(())
     }
 
     pub fn sync(&mut self, args: &mut RknpuMemSync) {}
