@@ -25,7 +25,9 @@ use consts::*;
 
 use tock_registers::interfaces::{Readable, Writeable};
 
-use crate::{JobMode, RknpuError, RknpuTask, data::RknpuData, registers::int::IntRegs};
+use crate::{
+    JobMode, RknpuError, RknpuTask, Submit, SubmitRef, data::RknpuData, registers::int::IntRegs,
+};
 
 const RKNPU_PC_DATA_EXTRA_AMOUNT: u32 = 4;
 
@@ -103,6 +105,70 @@ impl RknpuCore {
         self.pc().version()
     }
 
+    fn submit_pc(&mut self, config: &RknpuData, args: &SubmitRef) -> Result<(), RknpuError> {
+        let pc_data_amount_scale = config.pc_data_amount_scale;
+
+        self.pc().base_address.set(1);
+
+        let task_pp_en = if args.base.flags.contains(JobMode::PINGPONG) {
+            1
+        } else {
+            0
+        };
+        let pc_task_number_bits = config.pc_task_number_bits;
+
+        if config.irqs.get(args.base.core_idx).is_some() {
+            let val = 0xe + 0x10000000 * args.base.core_idx as u32;
+
+            debug!("Set PC S_POINTER to {:#x}", val);
+
+            self.cna().s_pointer.set(val);
+            self.core().s_pointer.set(val);
+        }
+
+        let pc_base_addr = args.regcmd_base_addr;
+
+        debug!("Set PC BASE_ADDRESS to {:#x}", pc_base_addr);
+
+        self.pc().base_address.set(pc_base_addr);
+
+        let amount = (args.base.regcfg_amount + RKNPU_PC_DATA_EXTRA_AMOUNT)
+            .div_ceil(pc_data_amount_scale)
+            - 1;
+
+        debug!("Set PC REGISTER_AMOUNTS to {:#x}", amount);
+
+        self.pc().register_amounts.set(amount);
+
+        self.pc().interrupt_mask.set(args.base.int_mask);
+        self.pc().interrupt_clear.set(args.base.int_clear);
+        let task_number = args.task_number as u32;
+
+        let task_control = ((0x6 | task_pp_en) << pc_task_number_bits) | task_number;
+        debug!("Set PC TASK_CONTROL to {:#x}", task_control);
+        self.pc().task_control.set(task_control);
+        debug!(
+            "Set PC TASK_DMA_BASE_ADDR to {:#x}",
+            args.base.task_base_addr
+        );
+        self.pc().task_dma_base_addr.set(args.base.task_base_addr);
+
+        self.pc().operation_enable.set(1);
+        self.pc().operation_enable.set(0);
+
+        debug!("Submitted {args:#x?}");
+
+        Ok(())
+    }
+
+    pub fn submit2(&mut self, config: &RknpuData, args: &Submit) -> Result<(), RknpuError> {
+        if args.tasks.len() > config.max_submit_number as usize {
+            todo!()
+        }
+
+        self.submit_pc(config, &args.as_ref())
+    }
+
     pub fn submit(
         &mut self,
         config: &RknpuData,
@@ -165,9 +231,7 @@ impl RknpuCore {
 
         let task_control = ((0x6 | task_pp_en) << pc_task_number_bits) | task_number;
         debug!("Set PC TASK_CONTROL to {:#x}", task_control);
-        self.pc()
-            .task_control
-            .set(task_control);
+        self.pc().task_control.set(task_control);
         debug!("Set PC TASK_DMA_BASE_ADDR to {:#x}", task_base_addr);
         self.pc().task_dma_base_addr.set(task_base_addr);
 
@@ -210,4 +274,10 @@ pub fn rknpu_fuzz_status(status: u32) -> u32 {
         fuzz_status |= 0xc00;
     }
     fuzz_status
+}
+
+pub struct SubmitTaskParams {
+    pub flags: JobMode,
+    pub task_base_addr: u32,
+    pub core_idx: usize,
 }

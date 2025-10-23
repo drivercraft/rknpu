@@ -1,5 +1,13 @@
 #![allow(dead_code)]
 
+pub const DIRECT_CONVOLUTION: u8 = 0x0;
+pub const NPU_CBUF_BANK_SIZE: u16 = 32768;
+pub const NPU_CBUF_BANKS: u16 = 12;
+
+pub const fn npu_op(op: u32, value: u32, reg: u32) -> u64 {
+    ((op as u64 & 0xFFFF) << 48) | ((value as u64 & 0xFFFF_FFFF) << 16) | reg as u64
+}
+
 // Registers as per TRM V1.0 2022-03-09 and descriptions (can be cryptic or missing)
 pub const PC_OPERATION_ENABLE: u32 = 0x0008; // Operation Enable
 pub const PC_BASE_ADDRESS: u32 = 0x0010; // PC address register

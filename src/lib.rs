@@ -331,6 +331,10 @@ impl Rknpu {
     //     Ok(())
     // }
 
+    pub fn submit2(&mut self, job: &mut Submit) -> Result<(), RknpuError> {
+        self.base[0].submit2(&self.data, job)
+    }
+
     pub fn submit(&mut self, job: &mut RknpuSubmitK, core_idx: usize) -> Result<(), RknpuError> {
         job.tasks.confirm_write_all();
         self.base[core_idx].submit(

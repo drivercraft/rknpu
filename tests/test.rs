@@ -33,7 +33,10 @@ mod tests {
             PCLK_NPU_PVTM, PCLK_NPU_ROOT, PCLK_NPU_TIMER, PCLK_NPU_WDT, TCLK_NPU_WDT,
         },
     };
-    use rknpu::{Matmul, Rknpu, RknpuConfig, RknpuSubmitK, RknpuType, Sharp, feature_data};
+    use rknpu::{
+        Matmul, Rknpu, RknpuConfig, RknpuSubmitK, RknpuType, Sharp, Submit, feature_data,
+        op::{self, Operation},
+    };
     use rockchip_pm::{PD, RkBoard, RockchipPM};
 
     /// NPU 主电源域
@@ -305,29 +308,19 @@ mod tests {
 
         matmul_int(m, k, n, &a_data, &b_data, &mut want);
 
-        let mut npu_matmul = Matmul::new(
-            Sharp {
-                width: k,
-                height: m,
-            },
-            Sharp {
-                width: n,
-                height: k,
-            },
-        );
+        let mut npu_matmul = op::matmul::MatMul::<i8, i32>::new(m, k, n);
+
+        npu_matmul.set_a(&a_data);
+
+        npu_matmul.set_b(&b_data);
+
+        let mut job = Submit::new(vec![Operation::MatMulu8(npu_matmul)]);
 
         let bstatus = npu.handle_interrupt0();
 
-        info!("NPU interrupt status before matmul: 0x{:x}", bstatus);
-
-        npu_matmul.set_a_b(&a_data, &b_data);
-        let mut job = RknpuSubmitK::new(vec![npu_matmul]);
-        npu.submit(&mut job, 0).unwrap();
+        npu.submit2(&mut job).unwrap();
 
         info!("Submitted matmul job to NPU");
-
-        info!("raw {:?}", &want[..16]);
-
         loop {
             spin_delay(Duration::from_millis(500));
             let status = IRQ_STATUS.load(core::sync::atomic::Ordering::SeqCst);
@@ -339,16 +332,15 @@ mod tests {
             }
         }
 
-        let actual_data = job.ops[0].output();
-
-        info!("return {:?}", &actual_data[..16]);
+        let Operation::MatMulu8(val) = &job.tasks[0];
 
         let M = m as _;
         let N = n as _;
         for m in 1..=M {
             for n in 1..=N {
-                let actual: i32 = actual_data[feature_data(N, M, 1, 4, n, m, 1) as usize];
-                let expected = want[(((m - 1) * N) + (n - 1)) as usize];
+                let actual: i32 = val.get_output(m, n);
+                // let actual: i32 = actual_data[feature_data(N, M, 1, 4, n, m, 1) as usize];
+                let expected = want[((m - 1) * N) + (n - 1)];
                 assert_eq!(
                     actual, expected,
                     "Matmul result mismatch at m={}, n={}: actual {}, expected {}",
@@ -356,6 +348,58 @@ mod tests {
                 );
             }
         }
+
+        // let mut npu_matmul = Matmul::new(
+        //     Sharp {
+        //         width: k,
+        //         height: m,
+        //     },
+        //     Sharp {
+        //         width: n,
+        //         height: k,
+        //     },
+        // );
+
+        // let bstatus = npu.handle_interrupt0();
+
+        // info!("NPU interrupt status before matmul: 0x{:x}", bstatus);
+
+        // npu_matmul.set_a_b(&a_data, &b_data);
+        // let mut job = RknpuSubmitK::new(vec![npu_matmul]);
+        // npu.submit(&mut job, 0).unwrap();
+
+        // info!("Submitted matmul job to NPU");
+
+        // info!("raw {:?}", &want[..16]);
+
+        // loop {
+        //     spin_delay(Duration::from_millis(500));
+        //     let status = IRQ_STATUS.load(core::sync::atomic::Ordering::SeqCst);
+
+        //     // let status = npu.handle_interrupt0();
+        //     if status != bstatus {
+        //         info!("NPU interrupt status after matmul: 0x{:x}", status);
+        //         break;
+        //     }
+        // }
+
+        // let actual_data = job.ops[0].output();
+
+        // info!("return {:?}", &actual_data[..16]);
+
+        // let M = m as _;
+        // let N = n as _;
+        // for m in 1..=M {
+        //     for n in 1..=N {
+        //         let actual: i32 = actual_data[feature_data(N, M, 1, 4, n, m, 1) as usize];
+        //         let expected = want[(((m - 1) * N) + (n - 1)) as usize];
+        //         assert_eq!(
+        //             actual, expected,
+        //             "Matmul result mismatch at m={}, n={}: actual {}, expected {}",
+        //             m, n, actual, expected
+        //         );
+        //     }
+        // }
         info!("Matmul result matches expected output");
     }
 
