@@ -2,8 +2,6 @@
 #![no_main]
 #![feature(used_with_arg)]
 
-use rknpu::feature_data;
-
 #[macro_use]
 extern crate alloc;
 #[macro_use]
@@ -34,7 +32,7 @@ mod tests {
         },
     };
     use rknpu::{
-        Matmul, Rknpu, RknpuConfig, RknpuSubmitK, RknpuType, Sharp, Submit, feature_data,
+        Rknpu, RknpuConfig, RknpuType, Submit,
         op::{self, Operation},
     };
     use rockchip_pm::{PD, RkBoard, RockchipPM};

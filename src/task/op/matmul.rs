@@ -432,18 +432,26 @@ impl MatMul<i8, i32> {
     }
 }
 
-fn feature_data(C: i32, H: i32, W: i32, C2: i32, c: i32, h: i32, w: i32) -> i32 {
-    let plane = (c - 1) / C2;
-    let src = plane * H * W * C2;
-    let offset = (c - 1) % C2;
-    let pos = src + C2 * ((h - 1) * W + (w - 1)) + offset;
-    pos
+fn feature_data(
+    _channel: i32,
+    height: i32,
+    width: i32,
+    channel_group: i32,
+    c: i32,
+    h: i32,
+    w: i32,
+) -> i32 {
+    let plane = (c - 1) / channel_group;
+    let src_offset = plane * height * width * channel_group;
+    let channel_offset = (c - 1) % channel_group;
+
+    src_offset + channel_group * ((h - 1) * width + (w - 1)) + channel_offset
 }
 
-fn weight_int8(C: i32, k: i32, c: i32) -> i32 {
-    let kpg = (k - 1) / 32;
-    let cpg = (c - 1) / 32;
-    let mut dst = (cpg * 32) * 32 + (kpg * 32 * C);
-    dst += (c - 1) % 32 + ((k - 1) % 32) * 32;
+fn weight_int8(channel: i32, kernel: i32, c: i32) -> i32 {
+    let kernel_page = (kernel - 1) / 32;
+    let channel_page = (c - 1) / 32;
+    let mut dst = (channel_page * 32) * 32 + (kernel_page * 32 * channel);
+    dst += (c - 1) % 32 + ((kernel - 1) % 32) * 32;
     dst
 }
