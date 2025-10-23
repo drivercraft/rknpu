@@ -76,63 +76,6 @@ bitflags::bitflags! {
     }
 }
 
-/// Submission descriptor mirroring the userspace ABI.
-pub struct RknpuSubmit {
-    pub flags: JobMode,
-    pub timeout: u32,
-    pub task_start: u32,
-    pub task_number: u32,
-    pub task_counter: u32,
-    pub priority: i32,
-    pub task_obj: DVec<u8>,
-    // pub task_obj_addr: u64,
-    pub iommu_domain_id: u32,
-    pub reserved: u32,
-    pub task_base_addr: u64,
-    pub hw_elapse_time: i64,
-    pub core_mask: u32,
-    pub fence_fd: i32,
-    pub subcore_task: [RknpuSubcoreTask; RKNPU_MAX_SUBCORE_TASKS],
-}
-
-impl fmt::Debug for RknpuSubmit {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RknpuSubmit")
-            .field("flags", &self.flags)
-            .field("timeout", &self.timeout)
-            .field("task_start", &self.task_start)
-            .field("task_number", &self.task_number)
-            .field("task_counter", &self.task_counter)
-            .field("priority", &self.priority)
-            .field("task_obj_paddr", &self.task_obj.bus_addr())
-            .field("iommu_domain_id", &self.iommu_domain_id)
-            .field("task_base_addr", &self.task_base_addr)
-            .field("hw_elapse_time", &self.hw_elapse_time)
-            .field("core_mask", &format_args!("0x{:x}", self.core_mask))
-            .field("fence_fd", &self.fence_fd)
-            .finish()
-    }
-}
-
-impl RknpuSubmit {
-    /// Returns the number of cores explicitly requested by this submission.
-    pub fn requested_cores(&self) -> u32 {
-        match self.core_mask {
-            RKNPU_CORE_AUTO_MASK => 0,
-            mask => mask.count_ones(),
-        }
-    }
-
-    /// Returns true if the submission requests non-blocking execution.
-    pub fn is_nonblocking(&self) -> bool {
-        self.flags.contains(JobMode::NONBLOCK)
-    }
-
-    /// Returns true if PC mode was requested.
-    pub fn is_pc_mode(&self) -> bool {
-        self.flags.contains(JobMode::PC)
-    }
-}
 
 /// Helper calculating the mask for the given core index.
 pub const fn core_mask_from_index(index: usize) -> u32 {

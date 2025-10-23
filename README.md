@@ -9,8 +9,6 @@ cargo install ostool
 运行测试
 
 ```bash
-cargo test --test test -- tests --show-output
-# 带uboot的开发板测试
 cargo test --test test -- tests --show-output --uboot 
 ```
 
@@ -83,7 +81,6 @@ impl Osal for MyOsal {
 
 ```
 
-
 ### 2. 初始化设备
 
 ```
@@ -110,7 +107,6 @@ let mut device = RknpuDevice::new(base_addrs, config, osal)?;
 // 初始化设备
 device.initialize()?;
 ```
-
 
 ### 3. 内存管理
 
@@ -144,7 +140,6 @@ device.memory_sync(mem_handle, DmaSyncDirection::ToDevice)?;
 device.memory_destroy(mem_handle)?;
 
 ```
-
 
 ### 4. 任务提交
 
@@ -184,7 +179,6 @@ println!("Task submitted with job ID: {}", job_id);
 
 ```
 
-
 ### 5. 中断处理
 
 ```
@@ -192,7 +186,6 @@ println!("Task submitted with job ID: {}", job_id);
 device.irq_handle(0)?; // 处理Core 0的中断
 
 ```
-
 
 ### 6. 设备控制
 
@@ -214,7 +207,6 @@ device.execute_action(DeviceAction::GetFreeSramSize, &mut free_sram)?;
 println!("SRAM: {} KB total, {} KB free", total_sram / 1024, free_sram / 1024);
 
 ```
-
 
 ## 平台集成要点
 
@@ -240,10 +232,10 @@ extern "C" fn npu_irq_handler(core_index: usize) {
 
 ```
 
-
 ### 内存映射
 
 平台需要提供：
+
 - RKNPU寄存器的MMIO映射
 - DMA一致性内存分配器
 - 可选的SRAM和NBUF区域映射

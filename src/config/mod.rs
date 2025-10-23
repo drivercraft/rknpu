@@ -3,8 +3,6 @@
 //! This module provides a `#[repr(C)]` Rust equivalent suitable for FFI
 //! or direct translation of kernel-style configuration data.
 
-use crate::err::RknpuError;
-
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum RknpuType {
     Rk3588,

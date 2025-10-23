@@ -13,7 +13,10 @@ extern crate alloc;
 #[macro_use]
 extern crate log;
 
-use core::ptr::NonNull;
+use core::{
+    ops::{Deref, DerefMut},
+    ptr::NonNull,
+};
 
 mod config;
 mod data;
@@ -31,20 +34,16 @@ pub use gem::*;
 pub use job::*;
 pub use osal::*;
 use rdif_base::DriverGeneric;
-use spin::Mutex;
 pub use task::*;
 use tock_registers::interfaces::*;
+mod ioctrl;
 
-use crate::{
-    data::RknpuData,
-    registers::{RknpuCore, consts::INT_CLEAR_ALL},
-};
+use crate::{data::RknpuData, registers::RknpuCore};
 
 const VERSION_MAJOR: u32 = 0;
 const VERSION_MINOR: u32 = 9;
 const VERSION_PATCH: u32 = 8;
 const RKNPU_PC_DATA_EXTRA_AMOUNT: u32 = 4;
-const PC_INTERRUPT_VALID_MASK: u32 = (1 << 14) - 1;
 
 const fn version(major: u32, minor: u32, patch: u32) -> u32 {
     major * 10000 + minor * 100 + patch
@@ -88,6 +87,7 @@ pub struct Rknpu {
     config: RknpuConfig,
     data: RknpuData,
     iommu_enabled: bool,
+    gem: GemPool,
 }
 
 impl Rknpu {
@@ -109,6 +109,7 @@ impl Rknpu {
             data,
             config,
             iommu_enabled: false,
+            gem: GemPool::new(),
         }
     }
 
@@ -373,10 +374,16 @@ impl DriverGeneric for Rknpu {
     }
 }
 
-/// Selects the lowest-numbered available core and returns its mask.
-#[allow(dead_code)]
-fn select_first_core(available_mask: u32) -> Option<u32> {
-    (0..RKNPU_MAX_CORES)
-        .map(core_mask_from_index)
-        .find(|mask| available_mask & *mask != 0)
+impl Deref for Rknpu {
+    type Target = GemPool;
+
+    fn deref(&self) -> &Self::Target {
+        &self.gem
+    }
+}
+
+impl DerefMut for Rknpu {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.gem
+    }
 }

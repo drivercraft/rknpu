@@ -17,6 +17,8 @@ const DIRECT_CONVOLUTION: u8 = 0x0;
 const NPU_CBUF_BANK_SIZE: u16 = 32768;
 const NPU_CBUF_BANKS: u16 = 12;
 
+#[allow(unused)]
+#[derive(Clone, Copy, Debug)]
 #[repr(u8)]
 enum Precision {
     Int8 = 0x0,
