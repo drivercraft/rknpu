@@ -1,5 +1,6 @@
 //! Raw offsets and constants that mirror the hardware documentation for the
 //! RKNN register file.
+#![allow(dead_code)]
 
 pub const PC_BASE_OFFSET: usize = 0x0000;
 pub const INT_BASE_OFFSET: usize = 0x0020;

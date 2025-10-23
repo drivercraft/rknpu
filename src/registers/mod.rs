@@ -105,7 +105,11 @@ impl RknpuCore {
         self.pc().version()
     }
 
-    fn submit_pc(&mut self, config: &RknpuData, args: &SubmitRef) -> Result<(), RknpuError> {
+    pub(crate) fn submit_pc(
+        &mut self,
+        config: &RknpuData,
+        args: &SubmitRef,
+    ) -> Result<(), RknpuError> {
         let pc_data_amount_scale = config.pc_data_amount_scale;
 
         self.pc().base_address.set(1);
@@ -274,10 +278,4 @@ pub fn rknpu_fuzz_status(status: u32) -> u32 {
         fuzz_status |= 0xc00;
     }
     fuzz_status
-}
-
-pub struct SubmitTaskParams {
-    pub flags: JobMode,
-    pub task_base_addr: u32,
-    pub core_idx: usize,
 }

@@ -1,4 +1,4 @@
-use crate::{Rknpu, RknpuError};
+use crate::{Rknpu, RknpuError, SubmitBase, SubmitRef};
 
 /// 子核心任务索引结构体
 ///
@@ -96,10 +96,49 @@ pub struct RknpuMemSync {
 
 impl Rknpu {
     pub fn submit_ioctrl(&self, args: &mut RknpuSubmit) -> Result<(), RknpuError> {
+        let mut n = 0;
+        let all = args.task_number as usize;
+        let max_submit_number = self.data.max_submit_number as usize;
+        let mut task_start = args.task_start;
+        let mut int_mask = 0;
 
+        while n < all {
+            let task_number = core::cmp::min(all - n, max_submit_number);
+            task_start = args.task_start + n as u32;
+            let task_end = task_start + task_number as u32 - 1;
 
-        // self.submit(job, 0)?;
+            let job = SubmitRef {
+                base: SubmitBase {
+                    flags: todo!(),
+                    task_base_addr: todo!(),
+                    core_idx: todo!(),
+                    int_mask: todo!(),
+                    int_clear: todo!(),
+                    regcfg_amount: todo!(),
+                },
+                task_number,
+                regcmd_base_addr: todo!(),
+            };
+            self.base[0].submit_pc(&self.data, &job).unwrap();
+            debug!(
+                "Submitted tasks from {} to {}",
+                task_start,
+                task_start + task_number as u32 - 1
+            );
+            loop {
+                let status = self.base[0].handle_interrupt();
+                if status == int_mask {
+                    break;
+                }
+            }
 
+            debug!(
+                "Completed tasks from {} to {}",
+                task_start,
+                task_start + task_number as u32 - 1
+            );
+            n += task_number;
+        }
 
         Ok(())
     }

@@ -43,7 +43,6 @@ use crate::{data::RknpuData, registers::RknpuCore};
 const VERSION_MAJOR: u32 = 0;
 const VERSION_MINOR: u32 = 9;
 const VERSION_PATCH: u32 = 8;
-const RKNPU_PC_DATA_EXTRA_AMOUNT: u32 = 4;
 
 const fn version(major: u32, minor: u32, patch: u32) -> u32 {
     major * 10000 + minor * 100 + patch
@@ -331,21 +330,8 @@ impl Rknpu {
     //     Ok(())
     // }
 
-    pub fn submit2(&mut self, job: &mut Submit) -> Result<(), RknpuError> {
+    pub fn submit(&mut self, job: &mut Submit) -> Result<(), RknpuError> {
         self.base[0].submit2(&self.data, job)
-    }
-
-    pub fn submit(&mut self, job: &mut RknpuSubmitK, core_idx: usize) -> Result<(), RknpuError> {
-        job.tasks.confirm_write_all();
-        self.base[core_idx].submit(
-            &self.data,
-            job.flags,
-            job.tasks.as_ref(),
-            job.task_base_addr,
-            core_idx,
-        )?;
-
-        Ok(())
     }
 
     pub fn handle_interrupt0(&mut self) -> u32 {
