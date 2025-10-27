@@ -32,6 +32,12 @@ impl GemPool {
         Ok(())
     }
 
+    pub fn mmap(&mut self, handle: u32) -> Option<&mut [u8]> {
+        self.pool
+            .get_mut(&handle)
+            .map(|dvec| unsafe { core::slice::from_raw_parts_mut(dvec.as_ptr(), dvec.len()) })
+    }
+
     pub fn sync(&mut self, args: &mut RknpuMemSync) {}
 
     pub fn destroy(&mut self, handle: u32) {
