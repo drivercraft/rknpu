@@ -8,12 +8,14 @@ use crate::{
 
 pub struct GemPool {
     pool: BTreeMap<u32, DVec<u8>>,
+    handle_counter: u32,
 }
 
 impl GemPool {
     pub const fn new() -> Self {
         GemPool {
             pool: BTreeMap::new(),
+            handle_counter: 1,
         }
     }
 
@@ -25,9 +27,14 @@ impl GemPool {
             Direction::Bidirectional,
         )
         .unwrap();
-        args.handle = data.bus_addr() as _;
+
+        let handle = self.handle_counter;
+        self.handle_counter = self.handle_counter.wrapping_add(1);
+
+        args.handle = handle;
         args.sram_size = data.len() as _;
         args.dma_addr = data.bus_addr();
+        args.obj_addr = data.as_ptr() as _;
         self.pool.insert(args.handle, data);
         Ok(())
     }

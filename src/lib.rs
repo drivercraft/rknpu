@@ -331,7 +331,7 @@ impl Rknpu {
     // }
 
     pub fn submit(&mut self, job: &mut Submit) -> Result<(), RknpuError> {
-        self.base[0].submit2(&self.data, job)
+        self.base[0].submit(&self.data, job)
     }
 
     pub fn handle_interrupt0(&mut self) -> u32 {
