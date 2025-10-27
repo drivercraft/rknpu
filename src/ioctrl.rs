@@ -123,6 +123,7 @@ impl Rknpu {
                 task_number: submit_tasks.len(),
                 regcmd_base_addr: submit_tasks[0].regcmd_addr as _,
             };
+            debug!("Submit job: {job:#x?}");
             self.base[0].submit_pc(&self.data, &job).unwrap();
 
             // Wait for completion
@@ -132,7 +133,7 @@ impl Rknpu {
                     break;
                 }
             }
-
+            debug!("Job completed");
             tasks = &tasks[submit_tasks.len()..];
         }
 
