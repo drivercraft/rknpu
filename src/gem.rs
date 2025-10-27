@@ -33,7 +33,7 @@ impl GemPool {
     }
 
     /// Get the physical address and size of the memory object.
-    pub fn get_phys_slice(&self, handle: u32) -> Option<(u64, usize)> {
+    pub fn get_phys_addr_and_size(&self, handle: u32) -> Option<(u64, usize)> {
         self.pool
             .get(&handle)
             .map(|dvec| (dvec.bus_addr(), dvec.len()))
