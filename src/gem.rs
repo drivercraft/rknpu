@@ -32,10 +32,11 @@ impl GemPool {
         Ok(())
     }
 
-    pub fn mmap(&mut self, handle: u32) -> Option<&mut [u8]> {
+    /// Get the physical address and size of the memory object.
+    pub fn get_phys_slice(&self, handle: u32) -> Option<(u64, usize)> {
         self.pool
-            .get_mut(&handle)
-            .map(|dvec| unsafe { core::slice::from_raw_parts_mut(dvec.as_ptr(), dvec.len()) })
+            .get(&handle)
+            .map(|dvec| (dvec.bus_addr(), dvec.len()))
     }
 
     pub fn sync(&mut self, args: &mut RknpuMemSync) {}
