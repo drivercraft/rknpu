@@ -13,6 +13,18 @@ pub struct RknpuSubcoreTask {
     pub task_number: u32,
 }
 
+/// A structure for getting a fake-offset that can be used with mmap.
+#[repr(C)]
+#[derive(Debug, Clone, Default)]
+pub struct RknpuMemMap {
+    /// handle of gem object.
+    pub handle: u32,
+    /// just padding to be 64-bit aligned.
+    pub reserved: u32,
+    /// a fake-offset of gem object.
+    pub offset: u64,
+}
+
 /// 任务提交结构体
 ///
 /// 对应 C 结构体 `rknpu_submit`
