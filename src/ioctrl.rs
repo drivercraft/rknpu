@@ -1,8 +1,11 @@
 use core::hint::spin_loop;
 
 use mbarrier::mb;
+use tock_registers::interfaces::Readable;
 
-use crate::{JobMode, Rknpu, RknpuError, RknpuTask, SubmitBase, SubmitRef};
+use crate::{
+    JobMode, Rknpu, RknpuError, RknpuTask, SubmitBase, SubmitRef, registers::rknpu_fuzz_status,
+};
 
 /// 子核心任务索引结构体
 ///
@@ -141,17 +144,17 @@ impl Rknpu {
                 regcmd_base_addr: submit_tasks[0].regcmd_addr as _,
             };
             debug!("Submit job: {job:#x?}");
-
             while self.base[0].handle_interrupt() != 0 {
                 spin_loop();
             }
-
+            debug!("Submitting PC job...");
             self.base[0].submit_pc(&self.data, &job).unwrap();
-            mb();
+
             // Wait for completion
             loop {
-                let status = self.base[0].handle_interrupt();
-                mb();
+                let status = self.base[0].pc().interrupt_status.get();
+                let status = rknpu_fuzz_status(status);
+
                 if status == job.base.int_mask {
                     break;
                 }
@@ -160,6 +163,7 @@ impl Rknpu {
                     return Err(RknpuError::TaskError);
                 }
             }
+            self.base[0].pc().clean_interrupts();
             debug!("Job completed");
             tasks = &tasks[submit_tasks.len()..];
         }

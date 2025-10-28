@@ -174,6 +174,7 @@ impl RknpuCore {
 
     pub fn handle_interrupt(&self) -> u32 {
         let int_status = self.pc().interrupt_status.get();
+        mb();
         self.pc().interrupt_clear.set(INT_CLEAR_ALL);
         rknpu_fuzz_status(int_status)
     }

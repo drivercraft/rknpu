@@ -1,5 +1,7 @@
 use tock_registers::{interfaces::*, register_structs, registers::*};
 
+use crate::registers::consts::INT_CLEAR_ALL;
+
 register_structs! {
     #[allow(non_snake_case)]
     pub PcRegs {
@@ -70,5 +72,9 @@ impl PcRegs {
         self.version
             .get()
             .wrapping_add(self.version_num.get() & 0xffff)
+    }
+
+    pub fn clean_interrupts(&self) {
+        self.interrupt_clear.set(INT_CLEAR_ALL);
     }
 }
