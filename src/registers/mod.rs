@@ -26,7 +26,7 @@ use consts::*;
 use tock_registers::interfaces::{Readable, Writeable};
 
 use crate::{
-    JobMode, RknpuError, RknpuTask, Submit, SubmitRef, data::RknpuData, registers::int::IntRegs,
+    JobMode, RknpuError, Submit, SubmitRef, data::RknpuData, registers::int::IntRegs,
 };
 
 const RKNPU_PC_DATA_EXTRA_AMOUNT: u32 = 4;
