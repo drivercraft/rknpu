@@ -1,3 +1,5 @@
+use core::hint::spin_loop;
+
 use mbarrier::mb;
 
 use crate::{JobMode, Rknpu, RknpuError, RknpuTask, SubmitBase, SubmitRef};
@@ -139,7 +141,11 @@ impl Rknpu {
                 regcmd_base_addr: submit_tasks[0].regcmd_addr as _,
             };
             debug!("Submit job: {job:#x?}");
-            let pre_status = self.base[0].handle_interrupt();
+
+            while self.base[0].handle_interrupt() != 0 {
+                spin_loop();
+            }
+
             self.base[0].submit_pc(&self.data, &job).unwrap();
             mb();
             // Wait for completion
@@ -149,7 +155,7 @@ impl Rknpu {
                 if status == job.base.int_mask {
                     break;
                 }
-                if status != pre_status {
+                if status != 0 {
                     debug!("Interrupt status changed: {:#x}", status);
                     return Err(RknpuError::TaskError);
                 }
