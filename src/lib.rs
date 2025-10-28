@@ -86,7 +86,7 @@ pub struct Rknpu {
     config: RknpuConfig,
     data: RknpuData,
     iommu_enabled: bool,
-    gem: GemPool,
+    pub(crate) gem: GemPool,
 }
 
 impl Rknpu {

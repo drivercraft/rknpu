@@ -96,6 +96,7 @@ pub struct RknpuMemSync {
 
 impl Rknpu {
     pub fn submit_ioctrl(&mut self, args: &mut RknpuSubmit) -> Result<(), RknpuError> {
+        self.gem.comfirm_write_all()?;
         let mut tasks = unsafe {
             core::slice::from_raw_parts(
                 args.task_obj_addr as *const RknpuTask,
@@ -124,6 +125,7 @@ impl Rknpu {
                 regcmd_base_addr: submit_tasks[0].regcmd_addr as _,
             };
             debug!("Submit job: {job:#x?}");
+            let pre_status = self.base[0].handle_interrupt();
             self.base[0].submit_pc(&self.data, &job).unwrap();
 
             // Wait for completion
@@ -132,10 +134,15 @@ impl Rknpu {
                 if status == job.base.int_mask {
                     break;
                 }
+                if status != pre_status {
+                    debug!("Interrupt status changed: {:#x}", status);
+                    return Err(RknpuError::TaskError);
+                }
             }
             debug!("Job completed");
             tasks = &tasks[submit_tasks.len()..];
         }
+        self.gem.prepare_read_all()?;
 
         Ok(())
     }

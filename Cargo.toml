@@ -5,7 +5,7 @@ version = "0.1.0"
 
 [dependencies]
 aarch64-cpu-ext = "0.1"
-dma-api = {version = "0.5", features = ["alloc"]}
+dma-api = {version = "0.5.2", features = ["alloc"]}
 log = "0.4"
 mbarrier = "0.1"
 num-align = "0.1"

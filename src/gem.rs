@@ -46,10 +46,24 @@ impl GemPool {
             .map(|dvec| (dvec.bus_addr(), dvec.len()))
     }
 
-    pub fn sync(&mut self, args: &mut RknpuMemSync) {}
+    pub fn sync(&mut self, _args: &mut RknpuMemSync) {}
 
     pub fn destroy(&mut self, handle: u32) {
         self.pool.remove(&handle);
+    }
+
+    pub fn comfirm_write_all(&mut self) -> Result<(), RknpuError> {
+        for data in self.pool.values_mut() {
+            data.confirm_write_all();
+        }
+        Ok(())
+    }
+
+    pub fn prepare_read_all(&mut self) -> Result<(), RknpuError> {
+        for data in self.pool.values_mut() {
+            data.prepare_read_all();
+        }
+        Ok(())
     }
 }
 
