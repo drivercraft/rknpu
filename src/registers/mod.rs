@@ -23,11 +23,10 @@ pub mod sdma;
 
 use consts::*;
 
+use mbarrier::mb;
 use tock_registers::interfaces::{Readable, Writeable};
 
-use crate::{
-    JobMode, RknpuError, Submit, SubmitRef, data::RknpuData, registers::int::IntRegs,
-};
+use crate::{JobMode, RknpuError, Submit, SubmitRef, data::RknpuData, registers::int::IntRegs};
 
 const RKNPU_PC_DATA_EXTRA_AMOUNT: u32 = 4;
 
@@ -156,8 +155,9 @@ impl RknpuCore {
             args.base.task_base_addr
         );
         self.pc().task_dma_base_addr.set(args.base.task_base_addr);
-
+        mb();
         self.pc().operation_enable.set(1);
+        mb();
         self.pc().operation_enable.set(0);
 
         debug!("Submitted {args:#x?}");

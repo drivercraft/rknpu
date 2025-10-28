@@ -1,3 +1,5 @@
+use mbarrier::mb;
+
 use crate::{JobMode, Rknpu, RknpuError, RknpuTask, SubmitBase, SubmitRef};
 
 /// 子核心任务索引结构体
@@ -139,10 +141,11 @@ impl Rknpu {
             debug!("Submit job: {job:#x?}");
             let pre_status = self.base[0].handle_interrupt();
             self.base[0].submit_pc(&self.data, &job).unwrap();
-
+            mb();
             // Wait for completion
             loop {
                 let status = self.base[0].handle_interrupt();
+                mb();
                 if status == job.base.int_mask {
                     break;
                 }
