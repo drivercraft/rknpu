@@ -114,48 +114,134 @@ pub struct RknpuMemSync {
 }
 
 impl Rknpu {
+    // pub fn submit_ioctrl(&mut self, args: &mut RknpuSubmit) -> Result<(), RknpuError> {
+    //     self.gem.comfirm_write_all()?;
+    //     let mut int_status = 0;
+
+    //     if args.flags & 1 << 1 > 0 {
+    //         debug!("Nonblock task");
+    //     }
+    //     let task_ptr = args.task_obj_addr as *mut RknpuTask;
+    //     let mut task_iter = args.task_start as usize;
+    //     let task_iter_end = task_iter + args.task_number as usize;
+    //     let max_submit_number = self.data.max_submit_number as usize;
+
+    //     while task_iter < task_iter_end {
+    //         let task_number = (task_iter_end - task_iter).min(max_submit_number);
+    //         let submit_tasks =
+    //             unsafe { core::slice::from_raw_parts_mut(task_ptr.add(task_iter), task_number) };
+
+    //         let job = SubmitRef {
+    //             base: SubmitBase {
+    //                 flags: JobMode::from_bits_retain(args.flags),
+    //                 task_base_addr: args.task_base_addr as _,
+    //                 core_idx: args.core_mask.trailing_zeros() as usize,
+    //                 // core_idx: 0x0,
+    //                 int_mask: submit_tasks.last().unwrap().int_mask,
+    //                 int_clear: submit_tasks[0].int_mask,
+    //                 regcfg_amount: submit_tasks[0].regcfg_amount,
+    //             },
+    //             task_number,
+    //             regcmd_base_addr: submit_tasks[0].regcmd_addr as _,
+    //         };
+    //         debug!("Submit {task_number} jobs: {job:#x?}");
+    //         while self.base[0].handle_interrupt() != 0 {
+    //             spin_loop();
+    //         }
+    //         debug!("Submitting PC job...");
+    //         self.base[0].submit_pc(&self.data, &job).unwrap();
+
+    //         // Wait for completion
+    //         loop {
+    //             let status = self.base[0].pc().interrupt_status.get();
+    //             let status = rknpu_fuzz_status(status);
+
+    //             if status & job.base.int_mask > 0 {
+    //                 int_status = job.base.int_mask & status;
+    //                 break;
+    //             }
+    //             if status != 0 {
+    //                 debug!("Interrupt status changed: {:#x}", status);
+    //                 return Err(RknpuError::TaskError);
+    //             }
+    //         }
+    //         self.base[0].pc().clean_interrupts();
+    //         debug!("Job completed");
+    //         submit_tasks.last_mut().unwrap().int_status = int_status;
+    //         task_iter += task_number;
+    //     }
+    //     self.gem.prepare_read_all()?;
+
+    //     args.task_counter = args.task_number as _;
+    //     args.hw_elapse_time = (args.timeout / 2) as _;
+
+    //     Ok(())
+    // }
     pub fn submit_ioctrl(&mut self, args: &mut RknpuSubmit) -> Result<(), RknpuError> {
         self.gem.comfirm_write_all()?;
-        let mut tasks = unsafe {
-            core::slice::from_raw_parts(
-                args.task_obj_addr as *const RknpuTask,
-                args.task_number as usize,
-            )
-        };
+
+        if args.flags & 1 << 1 > 0 {
+            debug!("Nonblock task");
+        }
+
+        for idx in 0..5 {
+            if args.subcore_task[idx].task_number == 0 {
+                continue;
+            }
+            debug!("Submitting subcore task index: {}", idx);
+            let submitted_tasks = self.submit_one(idx, args)?;
+            debug!(
+                "Submitted {} tasks for subcore index {}",
+                submitted_tasks, idx
+            );
+        }
+
+        self.gem.prepare_read_all()?;
+
+        args.task_counter = args.task_number as _;
+        args.hw_elapse_time = (args.timeout / 2) as _;
+
+        Ok(())
+    }
+    fn submit_one(&mut self, idx: usize, args: &mut RknpuSubmit) -> Result<usize, RknpuError> {
+        let task_ptr = args.task_obj_addr as *mut RknpuTask;
+        let subcore = &args.subcore_task[idx];
+
+        let mut task_iter = subcore.task_start as usize;
+        let task_iter_end = task_iter + subcore.task_number as usize;
         let max_submit_number = self.data.max_submit_number as usize;
 
-        while !tasks.is_empty() {
-            let submit_tasks = if tasks.len() > max_submit_number {
-                &tasks[..max_submit_number]
-            } else {
-                tasks
-            };
+        while task_iter < task_iter_end {
+            let task_number = (task_iter_end - task_iter).min(max_submit_number);
+            let submit_tasks =
+                unsafe { core::slice::from_raw_parts_mut(task_ptr.add(task_iter), task_number) };
 
             let job = SubmitRef {
                 base: SubmitBase {
                     flags: JobMode::from_bits_retain(args.flags),
                     task_base_addr: args.task_base_addr as _,
-                    core_idx: args.core_mask.trailing_zeros() as usize,
+                    core_idx: idx,
                     int_mask: submit_tasks.last().unwrap().int_mask,
-                    int_clear: submit_tasks.last().unwrap().int_clear,
+                    int_clear: submit_tasks[0].int_mask,
                     regcfg_amount: submit_tasks[0].regcfg_amount,
                 },
-                task_number: submit_tasks.len(),
+                task_number,
                 regcmd_base_addr: submit_tasks[0].regcmd_addr as _,
             };
-            debug!("Submit job: {job:#x?}");
-            while self.base[0].handle_interrupt() != 0 {
+            debug!("Submit {task_number} jobs: {job:#x?}");
+            while self.base[idx].handle_interrupt() != 0 {
                 spin_loop();
             }
             debug!("Submitting PC job...");
-            self.base[0].submit_pc(&self.data, &job).unwrap();
-
+            self.base[idx].submit_pc(&self.data, &job).unwrap();
+            let int_status;
             // Wait for completion
             loop {
-                let status = self.base[0].pc().interrupt_status.get();
+                let status = self.base[idx].pc().interrupt_status.get();
                 let status = rknpu_fuzz_status(status);
 
-                if status == job.base.int_mask {
+                if status & job.base.int_mask > 0 {
+                    int_status = job.base.int_mask & status;
                     break;
                 }
                 if status != 0 {
@@ -163,12 +249,12 @@ impl Rknpu {
                     return Err(RknpuError::TaskError);
                 }
             }
-            self.base[0].pc().clean_interrupts();
+            self.base[idx].pc().clean_interrupts();
             debug!("Job completed");
-            tasks = &tasks[submit_tasks.len()..];
+            submit_tasks.last_mut().unwrap().int_status = int_status;
+            task_iter += task_number;
         }
-        self.gem.prepare_read_all()?;
 
-        Ok(())
+        Ok(subcore.task_number as usize)
     }
 }
