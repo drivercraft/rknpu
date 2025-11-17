@@ -9,10 +9,10 @@ cargo install ostool
 运行测试
 
 ```bash
-cargo test --test test -- tests --show-output --uboot 
+cargo test --test test -- tests --show-output uboot
 ```
 
-# RKNPU Minimal Device Layer
+## RKNPU Minimal Device Layer
 
 基于orangepi-build内核驱动实现的最小化RKNPU设备层，使用OSAL接口抽象系统依赖，专注于硬件操作逻辑。
 
@@ -26,7 +26,7 @@ cargo test --test test -- tests --show-output --uboot
 
 ## 模块结构
 
-```
+```tree
 src/
 ├── lib.rs          # 主入口，对外API
 ├── osal.rs         # 操作系统抽象层
@@ -42,7 +42,7 @@ src/
 
 ### 1. 实现OSAL接口
 
-```
+```rust
 use rknpu::*;
 
 
@@ -83,7 +83,7 @@ impl Osal for MyOsal {
 
 ### 2. 初始化设备
 
-```
+```rust
 use core::ptr::NonNull;
 use alloc::vec;
 
@@ -110,7 +110,7 @@ device.initialize()?;
 
 ### 3. 内存管理
 
-```
+```rust
 // 分配内存
 let flags = NpuMemoryFlags {
     base_flags: MemoryFlags {
@@ -143,7 +143,7 @@ device.memory_destroy(mem_handle)?;
 
 ### 4. 任务提交
 
-```
+```rust
 // 创建任务缓冲区
 let task_buffer_handle = device.memory_create(4096, flags)?;
 
@@ -181,7 +181,7 @@ println!("Task submitted with job ID: {}", job_id);
 
 ### 5. 中断处理
 
-```
+```rust
 // 在中断服务程序中调用（由平台提供）
 device.irq_handle(0)?; // 处理Core 0的中断
 
@@ -189,7 +189,7 @@ device.irq_handle(0)?; // 处理Core 0的中断
 
 ### 6. 设备控制
 
-```
+```rust
 // 获取硬件版本
 let mut hw_version = 0;
 device.execute_action(DeviceAction::GetHwVersion, &mut hw_version)?;
@@ -219,7 +219,7 @@ println!("SRAM: {} KB total, {} KB free", total_sram / 1024, free_sram / 1024);
 
 ### 中断处理集成
 
-```
+```rust
 // 在平台的中断服务程序中
 extern "C" fn npu_irq_handler(core_index: usize) {
     // 获取设备实例（全局或通过参数传递）
